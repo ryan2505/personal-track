@@ -16,9 +16,8 @@ import { useStore } from "@/lib/store/StoreProvider";
 /**
  * Gestion du lien vivant : création, partage, révocation.
  *
- * La mise à jour du contenu n'est pas ici — elle est portée par `LivePublisher`,
- * monté au-dessus de toute l'application, pour que le lien suive les données
- * même quand cet écran n'est pas ouvert.
+ * Rien n'est publié ni mis à jour ici : le lien lit `user_state` à chaque
+ * consultation. Il n'y a donc aucun contenu à tenir à jour côté client.
  */
 export function LiveLinkPanel() {
   const { state, setLiveBoard } = useStore();
