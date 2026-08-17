@@ -28,7 +28,11 @@ export function getSupabase(): SupabaseClient | null {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false,
+        // Nécessaire au lien de réinitialisation, qui arrive avec son jeton
+        // dans le fragment. Sans effet sur `/live/[id]#k=…` : ces pages
+        // n'instancient jamais ce client, et le fragment n'y contient aucun
+        // `access_token` à parser.
+        detectSessionInUrl: true,
       },
     },
   );
@@ -104,6 +108,39 @@ export async function changePassword(
   }
 
   const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error !== null) throw new Error(humanizeAuthError(error.message));
+}
+
+/**
+ * Envoie un lien de réinitialisation.
+ *
+ * Le message est volontairement identique que l'adresse existe ou non : révéler
+ * quels comptes existent est une fuite gratuite.
+ */
+export async function requestPasswordReset(email: string, redirectTo: string): Promise<void> {
+  const supabase = getSupabase();
+  if (supabase === null) throw new Error("Authentification non configurée.");
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  if (error !== null) throw new Error(humanizeAuthError(error.message));
+}
+
+/**
+ * Applique le nouveau mot de passe après passage par le lien reçu par mail.
+ * Suppose une session de récupération déjà établie par `detectSessionInUrl`.
+ */
+export async function setNewPassword(password: string): Promise<void> {
+  const supabase = getSupabase();
+  if (supabase === null) throw new Error("Authentification non configurée.");
+
+  const { data } = await supabase.auth.getSession();
+  if (data.session === null) {
+    throw new Error(
+      "Lien expiré ou déjà utilisé. Demande un nouveau lien de réinitialisation.",
+    );
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
   if (error !== null) throw new Error(humanizeAuthError(error.message));
 }
 
