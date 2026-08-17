@@ -17,7 +17,7 @@ import {
   type Goal,
   type Habit,
 } from "@/lib/domain";
-import { CATEGORY_LABELS } from "@/lib/labels";
+import { CATEGORY_LABELS, GOAL_SCOPE_SHORT } from "@/lib/labels";
 import { useActiveHabits } from "@/lib/store/selectors";
 import { useStore } from "@/lib/store/StoreProvider";
 import { cn, formatPercent } from "@/lib/utils";
@@ -75,7 +75,12 @@ export default function GoalsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <button onClick={() => setEditing(goal)} className="min-w-0 flex-1 text-left">
                     <span className="block text-sm font-medium">{goal.title}</span>
-                    <span className="text-faint text-xs">{CATEGORY_LABELS[goal.category]}</span>
+                    <span className="text-faint text-xs">
+                      {CATEGORY_LABELS[goal.category]}
+                      <span className="border-border ml-2 rounded-sm border px-1.5 py-0.5">
+                        {GOAL_SCOPE_SHORT[goal.scope]}
+                      </span>
+                    </span>
                   </button>
                   <span className="tabular shrink-0 text-sm">{formatPercent(progress.ratio)}</span>
                 </div>

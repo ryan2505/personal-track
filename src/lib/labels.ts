@@ -1,4 +1,11 @@
-import type { Habit, HabitCategory, HabitType, ScheduleKind, ScheduleRule } from "@/lib/domain";
+import type {
+  GoalScope,
+  Habit,
+  HabitCategory,
+  HabitType,
+  ScheduleKind,
+  ScheduleRule,
+} from "@/lib/domain";
 
 export const CATEGORIES: HabitCategory[] = [
   "career",
@@ -38,6 +45,24 @@ export const CATEGORY_PROMPTS: Record<HabitCategory, string> = {
   personal: "Qui veux-tu être devenu ?",
   spiritual: "Où veux-tu en être intérieurement ?",
   other: "Où veux-tu être ?",
+};
+
+/** Du plus court au plus long — même ordre que le type `GoalScope`. */
+export const GOAL_SCOPES: GoalScope[] = ["weekly", "monthly", "yearly", "long_term"];
+
+export const GOAL_SCOPE_LABELS: Record<GoalScope, string> = {
+  weekly: "Cette semaine",
+  monthly: "Ce mois",
+  yearly: "Cette année",
+  long_term: "Long terme",
+};
+
+/** Étiquette courte, pour les listes. */
+export const GOAL_SCOPE_SHORT: Record<GoalScope, string> = {
+  weekly: "Semaine",
+  monthly: "Mois",
+  yearly: "Année",
+  long_term: "Long terme",
 };
 
 export const HABIT_TYPES: HabitType[] = ["boolean", "numeric", "duration", "quantity", "counter"];

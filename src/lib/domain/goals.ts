@@ -1,6 +1,15 @@
-import { compareDates, diffDays, isWithin, minDate } from "./dates";
+import {
+  compareDates,
+  diffDays,
+  endOfIsoWeek,
+  endOfMonth,
+  isWithin,
+  minDate,
+  startOfIsoWeek,
+  startOfMonth,
+} from "./dates";
 import { isFullyCompleted } from "./scoring";
-import type { Goal, GoalStatus, Habit, HabitLog, LocalDate } from "./types";
+import type { Goal, GoalScope, GoalStatus, Habit, HabitLog, LocalDate } from "./types";
 
 /**
  * Objectifs — CLAUDE.md §5.4.
@@ -123,6 +132,32 @@ export function sharedGoalProgress(
   }
 
   return { total, ratio: target > 0 ? Math.min(total / target, 1) : 0, byUser };
+}
+
+/**
+ * Fenêtre par défaut d'un objectif selon son horizon.
+ *
+ * Vit dans le domaine et non dans le formulaire : choisir « cette semaine » doit
+ * produire exactement le lundi et le dimanche ISO, les mêmes bornes que celles
+ * utilisées par la consistance hebdomadaire. Deux calculs séparés finiraient par
+ * diverger d'un jour.
+ */
+export function goalWindowForScope(
+  scope: GoalScope,
+  today: LocalDate,
+): { startDate: LocalDate; dueDate: LocalDate | null } {
+  switch (scope) {
+    case "weekly":
+      return { startDate: startOfIsoWeek(today), dueDate: endOfIsoWeek(today) };
+    case "monthly":
+      return { startDate: startOfMonth(today), dueDate: endOfMonth(today) };
+    case "yearly":
+      return { startDate: `${today.slice(0, 4)}-01-01`, dueDate: `${today.slice(0, 4)}-12-31` };
+    case "long_term":
+      // Pas d'échéance : c'est ce qui distingue un objectif long terme d'un
+      // objectif daté qu'on repousse indéfiniment.
+      return { startDate: today, dueDate: null };
+  }
 }
 
 /**

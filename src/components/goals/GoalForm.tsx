@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Field, Select, TextInput } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import {
-  endOfMonth,
-  startOfMonth,
+  goalWindowForScope,
   type Goal,
   type GoalScope,
   type GoalSource,
@@ -15,14 +14,8 @@ import {
   type HabitCategory,
   type LocalDate,
 } from "@/lib/domain";
-import { CATEGORIES, CATEGORY_LABELS } from "@/lib/labels";
+import { CATEGORIES, CATEGORY_LABELS, GOAL_SCOPES, GOAL_SCOPE_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-
-const SCOPES: { value: GoalScope; label: string }[] = [
-  { value: "monthly", label: "Ce mois" },
-  { value: "yearly", label: "Cette année" },
-  { value: "long_term", label: "Long terme" },
-];
 
 const SOURCES: { value: GoalSource; label: string; hint: string }[] = [
   { value: "manual", label: "Saisie manuelle", hint: "Tu mets la valeur à jour toi-même." },
@@ -62,7 +55,18 @@ export function GoalForm({
   const [unit, setUnit] = useState(goal?.unit ?? "");
   const [source, setSource] = useState<GoalSource>(goal?.source ?? "manual");
   const [habitIds, setHabitIds] = useState<string[]>(goal?.habitIds ?? []);
-  const [dueDate, setDueDate] = useState(goal?.dueDate ?? endOfMonth(today));
+  const [dueDate, setDueDate] = useState(
+    goal?.dueDate ?? (goalWindowForScope(goal?.scope ?? "monthly", today).dueDate ?? ""),
+  );
+
+  /**
+   * Changer d'horizon recale l'échéance sur la fenêtre correspondante — le
+   * lundi/dimanche ISO pour « cette semaine ». La date reste modifiable après.
+   */
+  const changeScope = (next: GoalScope) => {
+    setScope(next);
+    setDueDate(goalWindowForScope(next, today).dueDate ?? "");
+  };
 
   const derived = source !== "manual";
   const activeSource = SOURCES.find((item) => item.value === source);
@@ -78,7 +82,7 @@ export function GoalForm({
       currentValue: goal?.currentValue ?? 0,
       source,
       unit: unit.trim() === "" ? null : unit.trim(),
-      startDate: goal?.startDate ?? (scope === "monthly" ? startOfMonth(today) : today),
+      startDate: goal?.startDate ?? goalWindowForScope(scope, today).startDate,
       dueDate: dueDate === "" ? null : dueDate,
       status: goal?.status ?? "not_started",
       habitIds: derived ? habitIds : [],
@@ -112,10 +116,13 @@ export function GoalForm({
             </Select>
           </Field>
           <Field label="Horizon">
-            <Select value={scope} onChange={(event) => setScope(event.target.value as GoalScope)}>
-              {SCOPES.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
+            <Select
+              value={scope}
+              onChange={(event) => changeScope(event.target.value as GoalScope)}
+            >
+              {GOAL_SCOPES.map((item) => (
+                <option key={item} value={item}>
+                  {GOAL_SCOPE_LABELS[item]}
                 </option>
               ))}
             </Select>

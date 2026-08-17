@@ -120,7 +120,8 @@ export interface VisionItem {
   order: number;
 }
 
-export type GoalScope = "long_term" | "yearly" | "monthly";
+/** Du plus court au plus long : c'est aussi l'ordre d'affichage. */
+export type GoalScope = "weekly" | "monthly" | "yearly" | "long_term";
 export type GoalStatus = "not_started" | "in_progress" | "completed" | "abandoned";
 /** `manual` : saisie à la main. Sinon la valeur est dérivée des logs des habitudes liées. */
 export type GoalSource = "manual" | "habit_count" | "habit_sum";

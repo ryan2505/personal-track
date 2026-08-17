@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { endOfIsoWeek, startOfIsoWeek } from "./dates";
 import { makeGoal, makeHabit, makeLog } from "./fixtures";
 import {
   activeGoalsOn,
@@ -7,6 +8,7 @@ import {
   goalCompletionRate,
   goalPace,
   goalProgress,
+  goalWindowForScope,
   resolveCurrentValue,
   sharedGoalProgress,
 } from "./goals";
@@ -117,6 +119,41 @@ describe("goalPace", () => {
   it("null sans échéance", () => {
     const goal = makeGoal({ id: "long", dueDate: null });
     expect(goalPace(goal, 0.5, "2026-08-17")).toBeNull();
+  });
+});
+
+describe("goalWindowForScope", () => {
+  // 2026-08-17 est un lundi.
+  it("cale un objectif hebdomadaire sur la semaine ISO, lundi au dimanche", () => {
+    expect(goalWindowForScope("weekly", "2026-08-20")).toEqual({
+      startDate: "2026-08-17",
+      dueDate: "2026-08-23",
+    });
+  });
+
+  it("utilise les mêmes bornes que la consistance hebdomadaire", () => {
+    const window = goalWindowForScope("weekly", "2026-08-20");
+    expect(window.startDate).toBe(startOfIsoWeek("2026-08-20"));
+    expect(window.dueDate).toBe(endOfIsoWeek("2026-08-20"));
+  });
+
+  it("cale un objectif mensuel sur le mois", () => {
+    expect(goalWindowForScope("monthly", "2026-02-10")).toEqual({
+      startDate: "2026-02-01",
+      dueDate: "2026-02-28",
+    });
+  });
+
+  it("cale un objectif annuel sur l'année civile", () => {
+    expect(goalWindowForScope("yearly", "2026-08-17")).toEqual({
+      startDate: "2026-01-01",
+      dueDate: "2026-12-31",
+    });
+  });
+
+  it("laisse un objectif long terme sans échéance", () => {
+    // Sans ça, « long terme » ne serait qu'un objectif daté qu'on repousse.
+    expect(goalWindowForScope("long_term", "2026-08-17").dueDate).toBeNull();
   });
 });
 
