@@ -4,7 +4,6 @@ import { AlertTriangle } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { Onboarding } from "@/components/onboarding/Onboarding";
-import { LivePublisher } from "@/components/share/LivePublisher";
 import { useStore } from "@/lib/store/StoreProvider";
 
 /**
@@ -43,7 +42,6 @@ export function AppGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {banner}
-      <LivePublisher />
       <AppShell>{children}</AppShell>
     </>
   );

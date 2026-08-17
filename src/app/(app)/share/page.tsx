@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Field, TextInput } from "@/components/ui/Field";
 import { buildSnapshot } from "@/lib/share/build";
+import { isLiveShareConfigured } from "@/lib/share/live";
 import { shareUrl, type ShareSettings } from "@/lib/share/snapshot";
 import { useStore } from "@/lib/store/StoreProvider";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,10 @@ export default function SharePage() {
 
   const settings = state.shareSettings;
   const live = state.liveBoard !== null;
+  // Proposer les deux mécanismes côte à côte était un piège : on copiait le lien
+  // figé en croyant partager le lien vivant. Le figé ne subsiste que là où il
+  // n'y a pas de serveur.
+  const liveAvailable = isLiveShareConfigured();
 
   // Une seule construction pour l'aperçu, le lien figé et la republication.
   const snapshot = useMemo(() => buildSnapshot(state, today), [state, today]);
@@ -123,6 +128,7 @@ export default function SharePage() {
         </p>
       </div>
 
+      {!liveAvailable && (
       <Card>
         <CardHeader
           title="Lien figé"
@@ -187,6 +193,7 @@ export default function SharePage() {
           </div>
         )}
       </Card>
+      )}
     </main>
   );
 }

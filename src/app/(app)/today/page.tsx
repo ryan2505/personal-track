@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { TodayGoals } from "@/components/goals/TodayGoals";
 import { HabitRow } from "@/components/habits/HabitRow";
 import { LogDetailModal } from "@/components/habits/LogDetailModal";
 import { Button } from "@/components/ui/Button";
@@ -64,6 +65,8 @@ export default function TodayPage() {
           <p className="text-faint tabular text-xs">Record : {streaks.longest}</p>
         </div>
       </Card>
+
+      <TodayGoals date={today} />
 
       <Card className="mb-6">
         <CardHeader title="Aujourd'hui" />

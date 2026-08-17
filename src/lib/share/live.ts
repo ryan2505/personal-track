@@ -1,23 +1,23 @@
-import type { ShareSnapshot } from "./snapshot";
+import { getSupabase } from "@/lib/auth/client";
+import type { AppState } from "@/lib/store/state";
 
 /**
- * Client des liens vivants.
+ * Liens de partage vivants.
  *
- * Appelle directement les fonctions RPC via PostgREST, sans `@supabase/supabase-js` :
- * on n'a besoin que de trois appels, et la dépendance n'apporterait ici qu'un
- * poids de bundle. Elle redeviendra justifiée à M1, quand il faudra Auth,
- * Storage et Realtime.
+ * Le lien ne transporte aucune donnée : il désigne un propriétaire, et chaque
+ * consultation lit sa base au moment de la requête. Le destinataire voit donc
+ * toujours l'état réel — y compris quand l'appareil du propriétaire est éteint.
+ *
+ * Le filtrage est fait côté serveur par `get_shared_state` (migration 0014) :
+ * les notes, la vision et les descriptions ne quittent jamais le compte, et les
+ * intitulés d'habitudes restent masqués tant qu'ils n'ont pas été ouverts.
+ * Filtrer côté client aurait envoyé les données puis fait semblant de les cacher.
  */
 
 export interface LiveBoardRef {
   id: string;
   /** Jeton-capacité. Vit dans le fragment de l'URL, jamais dans la query string. */
   secret: string;
-}
-
-export interface LiveBoard {
-  payload: ShareSnapshot;
-  updatedAt: string;
 }
 
 export class ShareConfigError extends Error {
@@ -29,40 +29,10 @@ export class ShareConfigError extends Error {
   }
 }
 
-function config(): { url: string; key: string } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (url === undefined || url === "" || key === undefined || key === "") {
-    throw new ShareConfigError();
-  }
-  return { url: url.replace(/\/$/, ""), key };
-}
-
 export function isLiveShareConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   return url !== undefined && url !== "" && key !== undefined && key !== "";
-}
-
-async function rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
-  const { url, key } = config();
-
-  const response = await fetch(`${url}/rest/v1/rpc/${name}`, {
-    method: "POST",
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Échec de ${name} (${response.status}) : ${detail.slice(0, 200)}`);
-  }
-
-  return (await response.json()) as T;
 }
 
 /** 32 octets aléatoires en base64url — assez pour qu'un lien ne se devine pas. */
@@ -74,34 +44,52 @@ export function generateSecret(): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Crée le lien (`ref` absent) ou met à jour son contenu. */
-export async function publishBoard(
-  ref: LiveBoardRef | null,
-  payload: ShareSnapshot,
-): Promise<LiveBoardRef> {
-  const secret = ref?.secret ?? generateSecret();
-  const id = await rpc<string>("publish_shared_board", {
-    p_id: ref?.id ?? null,
-    p_secret: secret,
-    p_payload: payload,
-  });
-  return { id, secret };
+function client() {
+  const supabase = getSupabase();
+  if (supabase === null) throw new ShareConfigError();
+  return supabase;
 }
 
+/** Crée le lien. Seul le propriétaire authentifié peut en créer un sur ses données. */
+export async function createShareLink(): Promise<LiveBoardRef> {
+  const secret = generateSecret();
+  const { data, error } = await client().rpc("create_share_link", { p_secret: secret });
+
+  if (error !== null) throw new Error(error.message);
+  if (typeof data !== "string") throw new Error("Création du lien impossible.");
+
+  return { id: data, secret };
+}
+
+export async function revokeShareLink(ref: LiveBoardRef): Promise<boolean> {
+  const { data, error } = await client().rpc("revoke_share_link", { p_id: ref.id });
+  if (error !== null) throw new Error(error.message);
+  return data === true;
+}
+
+/**
+ * État partagé, tel que projeté par le serveur.
+ *
+ * Structurellement compatible avec `AppState` pour que le destinataire calcule
+ * l'instantané avec exactement le même code de domaine que le propriétaire —
+ * pas de seconde implémentation susceptible de diverger.
+ */
+export type SharedState = Pick<
+  AppState,
+  "version" | "profile" | "habits" | "goals" | "logs" | "visionAreas" | "visionItems" | "shareSettings"
+>;
+
 /** `null` si le lien n'existe pas, a été révoqué, ou si le secret est faux. */
-export async function fetchBoard(ref: LiveBoardRef): Promise<LiveBoard | null> {
-  const rows = await rpc<{ payload: ShareSnapshot; updated_at: string }[]>("get_shared_board", {
+export async function fetchSharedState(ref: LiveBoardRef): Promise<SharedState | null> {
+  const { data, error } = await client().rpc("get_shared_state", {
     p_id: ref.id,
     p_secret: ref.secret,
   });
 
-  const row = rows[0];
-  if (row === undefined) return null;
-  return { payload: row.payload, updatedAt: row.updated_at };
-}
+  if (error !== null) throw new Error(error.message);
+  if (data === null || typeof data !== "object") return null;
 
-export async function revokeBoard(ref: LiveBoardRef): Promise<boolean> {
-  return rpc<boolean>("revoke_shared_board", { p_id: ref.id, p_secret: ref.secret });
+  return data as SharedState;
 }
 
 export function liveShareUrl(origin: string, ref: LiveBoardRef): string {

@@ -5,12 +5,11 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
-import { buildSnapshot } from "@/lib/share/build";
 import {
+  createShareLink,
   isLiveShareConfigured,
   liveShareUrl,
-  publishBoard,
-  revokeBoard,
+  revokeShareLink,
 } from "@/lib/share/live";
 import { useStore } from "@/lib/store/StoreProvider";
 
@@ -22,7 +21,7 @@ import { useStore } from "@/lib/store/StoreProvider";
  * même quand cet écran n'est pas ouvert.
  */
 export function LiveLinkPanel() {
-  const { state, today, setLiveBoard } = useStore();
+  const { state, setLiveBoard } = useStore();
   const [origin, setOrigin] = useState("");
   const [canNativeShare, setCanNativeShare] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -72,8 +71,7 @@ export function LiveLinkPanel() {
     setBusy(true);
     setError(null);
     try {
-      const ref = await publishBoard(null, buildSnapshot(state, today));
-      setLiveBoard(ref);
+      setLiveBoard(await createShareLink());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Création impossible.");
     } finally {
@@ -86,7 +84,7 @@ export function LiveLinkPanel() {
     setBusy(true);
     setError(null);
     try {
-      await revokeBoard(board);
+      await revokeShareLink(board);
       setLiveBoard(null);
       setConfirmingRevoke(false);
     } catch (cause) {
@@ -120,8 +118,8 @@ export function LiveLinkPanel() {
         {board === null ? (
           <>
             <p className="text-muted text-sm leading-relaxed">
-              Crée un lien qui reflète tes données en continu. Tu pourras changer ce qu&apos;il
-              montre à tout moment, ou le révoquer.
+              Crée un lien qui lit tes données en direct. Tu pourras changer ce qu&apos;il montre
+              à tout moment, ou le révoquer définitivement.
             </p>
             <Button variant="primary" onClick={() => void create()} disabled={busy}>
               {busy ? "Création…" : "Créer un lien vivant"}
@@ -139,8 +137,9 @@ export function LiveLinkPanel() {
             </p>
 
             <p className="text-faint text-xs leading-relaxed">
-              Le lien se met à jour quand l&apos;application est ouverte sur cet appareil. Fermée,
-              il continue d&apos;afficher le dernier état enregistré.
+              Le lien lit tes données réelles à chaque consultation. Il reste à jour même quand
+              cet appareil est éteint, et le filtrage se fait sur le serveur : ce que tu décoches
+              ne quitte jamais ton compte.
             </p>
 
             <div className="flex flex-wrap gap-2">
