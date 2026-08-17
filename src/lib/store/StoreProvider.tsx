@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   addDays,
@@ -77,6 +77,10 @@ interface StoreValue {
   resetAll: () => void;
 }
 
+/** Temporisation d'écriture. Assez court pour être imperceptible, assez long
+ *  pour regrouper une salve de frappes en une seule requête. */
+const SAVE_DEBOUNCE_MS = 700;
+
 const StoreContext = createContext<StoreValue | null>(null);
 
 function newId(): string {
@@ -129,16 +133,52 @@ export function StoreProvider({
   /**
    * La persistance est un effet dérivé de l'état, pas un effet de bord glissé
    * dans un updater : c'est ce qui permet de remonter une écriture échouée.
+   *
+   * Temporisée, parce que le dépôt peut être distant : sans ça, chaque frappe
+   * dans un champ de note déclencherait une requête réseau.
    */
+  const pending = useRef<AppState | null>(null);
+
+  const flush = useCallback(async () => {
+    const next = pending.current;
+    if (next === null) return;
+    pending.current = null;
+    try {
+      await repository.save(next);
+      setSaveError(null);
+    } catch (error: unknown) {
+      setSaveError(error instanceof Error ? error.message : "Enregistrement impossible.");
+    }
+  }, [repository]);
+
   useEffect(() => {
     if (!ready) return;
-    repository
-      .save(state)
-      .then(() => setSaveError(null))
-      .catch((error: unknown) => {
-        setSaveError(error instanceof Error ? error.message : "Enregistrement impossible.");
-      });
-  }, [state, ready, repository]);
+    pending.current = state;
+    const timer = window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [state, ready, flush]);
+
+  // Fermer l'onglet ou passer en arrière-plan ne doit pas perdre la dernière
+  // modification restée dans la temporisation.
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void flushRef.current();
+    };
+    const onPageHide = () => void flushRef.current();
+
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, []);
+
+  // Démontage (déconnexion, changement de compte) : on écrit ce qui reste.
+  useEffect(() => () => void flushRef.current(), []);
 
   const update = useCallback((mutate: (current: AppState) => AppState) => {
     setState(mutate);

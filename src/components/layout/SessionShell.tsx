@@ -6,6 +6,7 @@ import { LoginScreen } from "@/components/auth/LoginScreen";
 import { AppGate } from "@/components/layout/AppGate";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { createLocalRepository } from "@/lib/store/repository";
+import { createSupabaseRepository } from "@/lib/store/supabaseRepository";
 import { StoreProvider } from "@/lib/store/StoreProvider";
 
 /**
@@ -23,9 +24,16 @@ import { StoreProvider } from "@/lib/store/StoreProvider";
 export function SessionShell({ children }: { children: React.ReactNode }) {
   const { enabled, ready, user } = useAuth();
 
+  /**
+   * Connecté → base de données : les données survivent au navigateur et suivent
+   * le compte. Sinon → navigateur seul, seule option en mode local.
+   *
+   * Mémoïsé sur l'identifiant : sans ça, un dépôt reconstruit à chaque rendu
+   * relancerait le chargement en boucle.
+   */
   const repository = useMemo(
-    () => createLocalRepository(user?.id ?? null),
-    [user?.id],
+    () => (user === null ? createLocalRepository(null) : createSupabaseRepository(user.id)),
+    [user],
   );
 
   if (enabled && !ready) {

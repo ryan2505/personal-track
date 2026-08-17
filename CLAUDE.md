@@ -72,18 +72,27 @@ d'environnement, l'application tourne en mode local sans écran de connexion. `S
 aiguille les trois cas (non configuré / non connecté / connecté). Comptes initiaux créés par
 `supabase/seed.sql`, mots de passe à changer à la première connexion via Réglages → Compte.
 
-**⚠️ Écart assumé et temporaire — persistance.** Même connecté, l'état vit dans `localStorage`,
-derrière l'interface `Repository` (`src/lib/store/repository.ts`), **cloisonné par identifiant de
-compte** (`personal-os:state:<userId>`). Conséquences à ne pas oublier :
+**Persistance.** Connecté → table `user_state` (JSONB) sur Postgres, protégée par la même RLS
+stricte que le reste. Non connecté → `localStorage` seul. Dans les deux cas derrière l'interface
+`Repository`, et les écritures sont **temporisées à 700 ms** avec vidage forcé sur `pagehide` et
+passage en arrière-plan : sans ça, chaque frappe déclencherait une requête réseau.
 
-- deux comptes sur le même navigateur sont bien isolés ;
-- mais **les données ne suivent pas le compte d'un appareil à l'autre** ;
-- l'arbre `(app)` est entièrement client, ce qui contredit §4 règle 4 et §7 (RLS).
+Un **miroir local** double systématiquement l'écriture serveur. Si le réseau tombe, l'application
+repart du dernier état connu au lieu de présenter un espace vide — ce qui relancerait l'onboarding
+et donnerait l'impression que tout est perdu.
 
-Prochaine étape : écrire un `supabaseRepository` conforme à la même interface, sur le schéma
-normalisé de `supabase/migrations/`, et remonter les lectures en RSC. **Ne pas construire
-l'espace couple avant cette bascule** — il n'y a aujourd'hui aucune frontière de sécurité
-côté données.
+**⚠️ Écart assumé — document plutôt que schéma normalisé.** `user_state` stocke l'`AppState`
+entier en JSONB (migration `0012`), alors que les tables de `0003` à `0006` sont la vraie cible.
+Raison : l'interface `Repository` écrit l'état comme un tout, et synchroniser ça vers dix tables
+normalisées demanderait un moteur de diff dont chaque bug se paierait en données perdues.
+
+Conséquence à ne pas oublier : **l'espace couple ne peut pas fonctionner tant que les données
+vivent là** — `get_couple_overview` et le scoring SQL agrègent depuis les tables normalisées. La
+migration se fera écran par écran, sans nouvelle rupture pour l'utilisateur.
+
+**RLS vérifiée (17/08/2026)** : une écriture anonyme sur `user_state` est refusée
+(`42501 new row violates row-level security policy`). Premier contrôle réel — les vérifications
+précédentes passaient par la clé `service_role`, qui contourne les policies.
 
 **Dette environnement connue** : le cache npm de la machine produit des extractions partielles
 (`vitest`, `rolldown`, `enhanced-resolve`, `eslint`, `ajv` ont dû être réinstallés un par un).
