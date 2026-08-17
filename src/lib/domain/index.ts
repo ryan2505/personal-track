@@ -10,3 +10,4 @@ export * from "./scheduling";
 export * from "./scoring";
 export * from "./streaks";
 export * from "./goals";
+export * from "./scorecard";

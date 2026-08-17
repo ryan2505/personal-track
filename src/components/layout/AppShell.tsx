@@ -11,6 +11,7 @@ import {
   Settings,
   Share2,
   Target,
+  Trophy,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -26,6 +27,7 @@ type Route =
   | "/goals"
   | "/habits"
   | "/vision"
+  | "/scorecard"
   | "/analytics"
   | "/share"
   | "/settings";
@@ -37,6 +39,7 @@ const NAV: { href: Route; label: string; icon: typeof CheckCircle2 }[] = [
   { href: "/goals", label: "Objectifs", icon: Target },
   { href: "/habits", label: "Habitudes", icon: ListChecks },
   { href: "/vision", label: "Vision", icon: Compass },
+  { href: "/scorecard", label: "Bilan mensuel", icon: Trophy },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/share", label: "Partager", icon: Share2 },
   { href: "/settings", label: "Réglages", icon: Settings },
