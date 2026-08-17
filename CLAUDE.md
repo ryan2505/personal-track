@@ -52,6 +52,21 @@ Tout changement de forme incrémente `STATE_VERSION` et **complète** l'ancien �
 jamais les données de quelqu'un qui suit ses habitudes depuis des semaines. Couvert par
 `state.test.ts`.
 
+**Schéma vérifié contre un vrai projet (17/08/2026).** Les 11 migrations s'appliquent, les
+fonctions PL/pgSQL répondent (`daily_score` renvoie bien `null` sur un jour neutre), et le cycle
+complet du lien vivant est validé : création, lecture avec le bon secret, `[]` avec un mauvais,
+révocation, puis `[]` définitif.
+
+**Non vérifié : l'isolation RLS.** Ces tests ont tourné avec la clé `service_role`, qui
+court-circuite toutes les policies. Ils prouvent que les tables et les formules existent, **rien**
+sur l'étanchéité entre comptes. La passe qui compte — « Grace tente de lire les données de Ryan,
+par tous les chemins » — attend que les deux comptes existent.
+
+**Aucun compte n'existe encore.** `supabase/seed.sql` n'a jamais été exécuté et ne doit pas
+l'être sur un projet hébergé : ses mots de passe sont dans un dépôt public. Créer les comptes
+depuis le dashboard, avec **Auto Confirm User coché** (le projet a `mailer_autoconfirm = false`,
+donc un compte non confirmé ne peut pas se connecter).
+
 **Authentification** (`src/lib/auth/`) — Supabase Auth, **optionnelle** : sans variables
 d'environnement, l'application tourne en mode local sans écran de connexion. `SessionShell`
 aiguille les trois cas (non configuré / non connecté / connecté). Comptes initiaux créés par
@@ -366,7 +381,11 @@ Aucune ligne brute ne traverse jamais la frontière entre les deux comptes.
 ### Règles absolues
 
 - Jamais de filtrage de confidentialité côté front uniquement.
-- Jamais de `service_role` key dans du code applicatif.
+- Jamais de `service_role` key dans du code applicatif — et **jamais dans une variable
+  `NEXT_PUBLIC_*`**, qui est inlinée dans le JavaScript envoyé au navigateur. Une `service_role`
+  key à cet endroit ouvre la base entière en lecture et en écriture à n'importe quel visiteur et
+  annule toutes les policies de `supabase/migrations/`. Vérifier le rôle en décodant le JWT
+  avant de coller une clé : le payload doit contenir `"role":"anon"`.
 - Images (vision board, evidence) : buckets **privés** + URLs signées à durée courte.
 - Le test « Grace tente de lire les données de Ryan » doit retourner 0 ligne **par tous les chemins possibles**, et fait partie de la suite CI.
 
