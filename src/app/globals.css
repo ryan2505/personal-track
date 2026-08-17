@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — CLAUDE.md §8
+ * Dark uniquement en V1. Bordures 1px, ombres quasi inexistantes.
+ * On sépare par la couleur de surface, pas par l'ombre.
+ */
+@theme {
+  --color-bg: #0b0c0e;
+  --color-surface: #121316;
+  --color-surface-2: #17191d;
+  --color-border: #23262b;
+  --color-border-strong: #2f333a;
+
+  --color-text: #edeef0;
+  --color-muted: #8b9096;
+  --color-faint: #5a5f66;
+
+  --color-accent: #e8c15c;
+  --color-accent-dim: #a88a3c;
+  --color-success: #4e9c6b;
+  --color-warn: #c98a3e;
+  --color-danger: #b4544a;
+
+  /* Échelle de complétion — calendrier & heatmap.
+     Surface → accent. Jamais de rouge sur un jour raté : le produit ne punit pas. */
+  --color-level-0: #16181c;
+  --color-level-1: #3a3524;
+  --color-level-2: #6b5a2c;
+  --color-level-3: #a88a3c;
+  --color-level-4: #e8c15c;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --font-ui: var(--font-instrument-sans), ui-sans-serif, sans-serif;
+  --font-display: var(--font-instrument-serif), ui-serif, Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tout chiffre affiché dans un score, un compteur ou un tableau.
+     Sans ça, les colonnes dansent au changement de valeur. */
+  .tabular,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-accent) 30%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
