@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import type { HabitCategory, VisionItem, VisionItemKind } from "@/lib/domain";
 import { compressImage } from "@/lib/images";
 import { CATEGORIES, CATEGORY_LABELS } from "@/lib/labels";
+import { DEFAULT_QUOTES } from "@/lib/quotes";
 import { useStore } from "@/lib/store/StoreProvider";
 import { cn } from "@/lib/utils";
 
@@ -264,6 +265,31 @@ function VisionComposer({
                 autoFocus
               />
             </Field>
+
+            {/* Proposées seulement tant que le champ est vide : une suggestion
+                n'écrase jamais ce que la personne a commencé à écrire. */}
+            {kind === "quote" && content.trim() === "" && (
+              <div className="space-y-2">
+                <p className="text-muted text-xs tracking-wide uppercase">Suggestions</p>
+                <div className="space-y-1.5">
+                  {DEFAULT_QUOTES.slice(0, 6).map((quote) => (
+                    <button
+                      key={quote.text}
+                      onClick={() => {
+                        setContent(quote.text);
+                        setAuthor(quote.author ?? "");
+                      }}
+                      className="border-border hover:border-accent hover:text-text text-muted block w-full rounded-md border px-3 py-2 text-left text-xs leading-relaxed transition-colors"
+                    >
+                      {quote.text}
+                      {quote.author !== null && (
+                        <span className="text-faint block pt-0.5">{quote.author}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {kind === "quote" && (
               <Field label="Auteur">
                 <TextInput

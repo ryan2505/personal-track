@@ -17,6 +17,7 @@ import {
   type Habit,
 } from "@/lib/domain";
 import { formatLongDate, greeting } from "@/lib/labels";
+import { quoteForDate } from "@/lib/quotes";
 import { useActiveHabits, useDailyScore, useLogIndex, useStreaks } from "@/lib/store/selectors";
 import { useStore } from "@/lib/store/StoreProvider";
 import { formatPercent } from "@/lib/utils";
@@ -30,6 +31,8 @@ export default function TodayPage() {
   const [detail, setDetail] = useState<Habit | null>(null);
 
   const scheduled = expectedOn(habits, today);
+  // Déterministe : une même journée donne toujours la même citation.
+  const quote = quoteForDate(today);
   const quotas = quotaHabitsOn(habits, today);
 
   return (
@@ -120,6 +123,15 @@ export default function TodayPage() {
           </div>
         </Card>
       )}
+
+      <figure className="mt-8">
+        <blockquote className="font-display text-muted text-lg leading-snug text-balance">
+          {quote.text}
+        </blockquote>
+        {quote.author !== null && (
+          <figcaption className="text-faint mt-1 text-xs">{quote.author}</figcaption>
+        )}
+      </figure>
 
       <LogDetailModal
         habit={detail}
