@@ -324,8 +324,17 @@ export function metricsScore(
   period: Period,
   kind?: MetricKind,
 ): MetricsScore {
-  const rows = metricsForPeriod(metrics, index, period, kind);
+  return scoreOfRows(metricsForPeriod(metrics, index, period, kind));
+}
 
+/**
+ * Le score d'un ensemble de lignes déjà constitué.
+ *
+ * Sert à découper une couche sans la recalculer — par domaine de vie, par
+ * projet. Une découpe qui referait le calcul finirait par en diverger, et deux
+ * écrans afficheraient deux « Exécution » différents pour le même mois.
+ */
+export function scoreOfRows(rows: readonly MetricRow[]): MetricsScore {
   let numerator = 0;
   let denominator = 0;
   let scored = 0;
@@ -341,7 +350,7 @@ export function metricsScore(
 
   return {
     score: denominator === 0 ? null : numerator / denominator,
-    rows,
+    rows: [...rows],
     scored,
     tracked: rows.length,
     reached,

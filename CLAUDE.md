@@ -13,7 +13,7 @@
 |---|---|
 | Milestones | **M0, M2, M3, M4, M5, M6, M7 : faits** (17/08/2026) · **Bilan mensuel à trois couches** (19/08/2026) |
 | Reste | M1 (suite d'autorisation en CI), M8 (couple), M9 (revue hebdo + analytics avancées), M10 (polish) |
-| Vérifications | `typecheck` ✅ · `test` ✅ 194 tests · `build` ✅ 15 routes · `dev` ✅ · `lint` ⚠️ voir ci-dessous |
+| Vérifications | `typecheck` ✅ · `test` ✅ 201 tests · `build` ✅ 15 routes · `dev` ✅ · `lint` ⚠️ voir ci-dessous |
 | Décisions ouvertes | §14 — codées sur les valeurs par défaut recommandées, à confirmer |
 
 **Fait** : `src/lib/domain/` complet (planning versionné, scoring, streaks avec joker,
@@ -63,6 +63,16 @@ un `Σ min(réalisé, cible) / Σ cible` donnerait un dénominateur de 300 020 e
 écraserait tout. L'agrégation est donc une moyenne pondérée de ratios individuels — la forme de
 `dailyScore`, où chaque métrique compte pour une métrique quelle que soit son unité. Un test
 verrouille ce point précis.
+
+**Les trois couches se redécoupent par domaine de vie** (`AreaScore`, `splitByArea`). C'est là que
+le bilan devient actionnable : « Exécution 72 % » ne se corrige pas, « Business 72 % pendant que
+Santé est à 95 % » se corrige. Le découpage **ne recalcule rien** — la fondation réutilise
+`consistencyByCategory`, les couches métriques repartent des lignes déjà constituées via
+`scoreOfRows`. Deux chemins de calcul finiraient par afficher deux « Exécution » différents pour
+le même mois. Un domaine sans matière est écarté, jamais rendu à vide.
+
+⚠️ **Le score global n'est pas la moyenne des domaines** : la couche pondère les métriques une à
+une, pas les domaines. Un domaine à une seule métrique ne pèse pas autant qu'un domaine à six.
 
 **Une `Metric` n'est ni une habitude ni un objectif.** `MetricKind` n'a délibérément pas de valeur
 `habit` : ce qui relève des habitudes se calcule depuis les logs, et **aucun écran ne permet de

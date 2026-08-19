@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
+import { AreaBreakdown } from "@/components/metrics/AreaBreakdown";
 import { GoalScoreList } from "@/components/metrics/GoalScoreList";
 import { LayerScores } from "@/components/metrics/LayerScores";
 import { MetricForm } from "@/components/metrics/MetricForm";
@@ -232,6 +233,8 @@ export default function ScorecardPage() {
           </Card>
 
           <LayerScores card={card} />
+
+          <AreaBreakdown card={card} />
 
           {section("output")}
           {section("result")}

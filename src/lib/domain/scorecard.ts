@@ -4,15 +4,17 @@ import {
   cadenceOf,
   indexEntries,
   metricsScore,
+  scoreOfRows,
   monthPeriod,
   periodEnd,
   periodStart,
   type MetricsScore,
 } from "./metrics";
-import { consistency, indexLogs } from "./scoring";
+import { consistency, consistencyByCategory, indexLogs, type LogIndex } from "./scoring";
 import type {
   Goal,
   Habit,
+  HabitCategory,
   HabitLog,
   LocalDate,
   Metric,
@@ -88,6 +90,32 @@ export interface MonthlyScorecard {
 
   /** Vrai seulement si au moins un objectif était suivi et que tous sont atteints. */
   allGoalsReached: boolean;
+
+  /** Les mêmes trois couches, domaine de vie par domaine de vie. */
+  areas: AreaScore[];
+}
+
+/**
+ * Un domaine de vie et ses trois couches.
+ *
+ * C'est le même découpage que `consistencyByCategory` : la catégorie est
+ * partagée par la vision, les objectifs, les habitudes et les métriques, et
+ * c'est ce partage qui rend cette vue gratuite. Aucune logique séparée.
+ *
+ * Un domaine à 90 / 40 ne se lit pas comme un autre à 40 / 90, et la moyenne
+ * des deux ne dirait rien : c'est précisément ce que le score global masque.
+ */
+export interface AreaScore {
+  category: HabitCategory;
+  /** Couche FONDATION restreinte au domaine. */
+  foundation: number | null;
+  habitsAchieved: number;
+  habitsExpected: number;
+  execution: MetricsScore;
+  impact: MetricsScore;
+  goals: GoalScoreRow[];
+  /** Nombre d'éléments affichables — sert à écarter les domaines vides. */
+  tracked: number;
 }
 
 /**
@@ -173,6 +201,8 @@ export function periodScorecard({
   const goalsReached = measurable.filter((row) => row.reached).length;
 
   const habitResult = consistency(habits, index, start, asOf);
+  const execution = metricsScore(metrics, entryIndex, period, "output");
+  const impact = metricsScore(metrics, entryIndex, period, "result");
 
   return {
     start,
@@ -181,8 +211,9 @@ export function periodScorecard({
     cadence: cadenceOf(period),
     asOf,
     inProgress,
-    execution: metricsScore(metrics, entryIndex, period, "output"),
-    impact: metricsScore(metrics, entryIndex, period, "result"),
+    execution,
+    impact,
+    areas: splitByArea(habits, index, start, asOf, execution, impact, rows),
     goals: rows,
     goalsReached,
     goalsTracked: measurable.length,
@@ -192,6 +223,68 @@ export function periodScorecard({
     consistency: habitResult.score,
     allGoalsReached: measurable.length > 0 && goalsReached === measurable.length,
   };
+}
+
+/**
+ * Découpe des trois couches par domaine de vie.
+ *
+ * Rien n'est recalculé : la fondation réutilise `consistencyByCategory`, et les
+ * couches métriques repartent des lignes déjà constituées. Un domaine sans
+ * aucune matière est écarté plutôt qu'affiché à vide — dix domaines dont huit
+ * neutres ne sont pas une lecture, c'est un formulaire.
+ *
+ * L'ordre est déterministe (catégorie croissante) et non « le pire d'abord » :
+ * cette liste se relit tous les mois, et une ligne qui change de place à chaque
+ * ouverture s'oublie au lieu de se comparer. C'est à l'écran de la réordonner
+ * s'il le souhaite.
+ */
+function splitByArea(
+  habits: readonly Habit[],
+  index: LogIndex,
+  from: LocalDate,
+  to: LocalDate,
+  execution: MetricsScore,
+  impact: MetricsScore,
+  goals: readonly GoalScoreRow[],
+): AreaScore[] {
+  const foundations = consistencyByCategory(habits, index, from, to);
+  const categories = new Set<HabitCategory>([
+    ...foundations.keys(),
+    ...execution.rows.map((row) => row.metric.category),
+    ...impact.rows.map((row) => row.metric.category),
+    ...goals.map((row) => row.goal.category),
+  ]);
+
+  const areas: AreaScore[] = [];
+
+  for (const category of [...categories].sort()) {
+    const foundation = foundations.get(category);
+    const areaExecution = scoreOfRows(
+      execution.rows.filter((row) => row.metric.category === category),
+    );
+    const areaImpact = scoreOfRows(impact.rows.filter((row) => row.metric.category === category));
+    const areaGoals = goals.filter((row) => row.goal.category === category);
+
+    const tracked =
+      (foundation?.denominator ?? 0) +
+      areaExecution.tracked +
+      areaImpact.tracked +
+      areaGoals.length;
+    if (tracked === 0) continue;
+
+    areas.push({
+      category,
+      foundation: foundation?.score ?? null,
+      habitsAchieved: foundation?.numerator ?? 0,
+      habitsExpected: foundation?.denominator ?? 0,
+      execution: areaExecution,
+      impact: areaImpact,
+      goals: areaGoals,
+      tracked,
+    });
+  }
+
+  return areas;
 }
 
 /** Un mois réduit à ses trois couches — de quoi lire une année d'un coup d'œil. */

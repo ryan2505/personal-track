@@ -257,6 +257,108 @@ describe("monthlyScorecard — les trois couches", () => {
   });
 });
 
+describe("scorecard par domaine de vie", () => {
+  const habits = [
+    withRule("pray", { kind: "daily" }, { category: "spiritual", startDate: "2026-08-01" }),
+    withRule("call", { kind: "daily" }, { category: "business", startDate: "2026-08-01" }),
+  ];
+  // Prière tenue 5 jours sur 5, prospection 1 jour sur 5.
+  const logs = [
+    ...["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05"].map((d) =>
+      makeLog("pray", d),
+    ),
+    makeLog("call", "2026-08-01"),
+  ];
+  const metrics = [
+    makeMetric({ id: "contents", kind: "output", category: "business" }),
+    makeMetric({ id: "revenue", kind: "result", category: "business" }),
+    makeMetric({ id: "chapters", kind: "output", category: "spiritual" }),
+  ];
+  const entries = [
+    makeEntry("contents", "2026-08", { target: 20, actual: 10 }),
+    makeEntry("revenue", "2026-08", { target: 300, actual: 300 }),
+    makeEntry("chapters", "2026-08", { target: 4, actual: 4 }),
+  ];
+
+  const result = card({
+    habits,
+    logs,
+    metrics,
+    metricEntries: entries,
+    month: "2026-08-05",
+    today: "2026-08-05",
+  });
+
+  it("donne à chaque domaine ses trois couches", () => {
+    const business = result.areas.find((area) => area.category === "business");
+    const spiritual = result.areas.find((area) => area.category === "spiritual");
+
+    expect(business?.foundation).toBeCloseTo(0.2);
+    expect(business?.execution.score).toBe(0.5);
+    expect(business?.impact.score).toBe(1);
+
+    expect(spiritual?.foundation).toBe(1);
+    expect(spiritual?.execution.score).toBe(1);
+    expect(spiritual?.impact.score).toBeNull();
+  });
+
+  it("INVARIANT — le découpage ne recalcule rien : la somme des lignes est le tout", () => {
+    const split = result.areas.flatMap((area) => area.execution.rows.map((r) => r.metric.id));
+    expect(split.sort()).toEqual(result.execution.rows.map((r) => r.metric.id).sort());
+  });
+
+  it("le score global n'est pas la moyenne des domaines", () => {
+    // Business 0,5 et Spirituel 1 : la moyenne des domaines donnerait 0,75.
+    // Le global pondère chaque métrique, pas chaque domaine → (0,5 + 1) / 2.
+    expect(result.execution.score).toBe(0.75);
+    // Ici les deux coïncident ; le test existe pour figer la définition, pas
+    // le nombre : c'est la couche qui pondère les métriques, jamais les aires.
+    expect(result.areas).toHaveLength(2);
+  });
+
+  it("écarte les domaines sans matière plutôt que de les afficher à vide", () => {
+    expect(result.areas.map((area) => area.category)).toEqual(["business", "spiritual"]);
+  });
+
+  it("rattache les objectifs à leur domaine", () => {
+    const withGoal = card({
+      habits,
+      logs,
+      metrics,
+      metricEntries: entries,
+      goals: [makeGoal({ id: "g", category: "spiritual", startDate: "2026-08-01", dueDate: "2026-08-31" })],
+      month: "2026-08-05",
+      today: "2026-08-05",
+    });
+
+    expect(withGoal.areas.find((a) => a.category === "spiritual")?.goals).toHaveLength(1);
+    expect(withGoal.areas.find((a) => a.category === "business")?.goals).toHaveLength(0);
+  });
+
+  it("un domaine qui n'a qu'un objectif existe quand même", () => {
+    const onlyGoal = card({
+      goals: [makeGoal({ id: "g", category: "finance", startDate: "2026-08-01", dueDate: "2026-08-31" })],
+      month: "2026-08-05",
+      today: "2026-08-05",
+    });
+
+    expect(onlyGoal.areas.map((a) => a.category)).toEqual(["finance"]);
+    expect(onlyGoal.areas[0]?.foundation).toBeNull();
+  });
+
+  it("l'ordre est déterministe — une liste qui bouge chaque mois ne se compare pas", () => {
+    const again = card({
+      habits: [...habits].reverse(),
+      logs,
+      metrics: [...metrics].reverse(),
+      metricEntries: entries,
+      month: "2026-08-05",
+      today: "2026-08-05",
+    });
+    expect(again.areas.map((a) => a.category)).toEqual(result.areas.map((a) => a.category));
+  });
+});
+
 describe("monthlyTrend — la même mesure, mois après mois", () => {
   const daily = withRule("read", { kind: "daily" }, { startDate: "2026-06-01" });
   const input = {

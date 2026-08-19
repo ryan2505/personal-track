@@ -1,13 +1,22 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Field";
-import { cadenceOf, type Metric, type MetricKind, type MetricsScore, type Period } from "@/lib/domain";
+import {
+  cadenceOf,
+  type HabitCategory,
+  type Metric,
+  type MetricKind,
+  type MetricRow,
+  type MetricsScore,
+  type Period,
+} from "@/lib/domain";
+import { CATEGORIES, CATEGORY_LABELS } from "@/lib/labels";
 /** « Aucune production », « Aucun résultat » — l'accord suit le mot, pas le type. */
 const EMPTY_TITLES: Record<MetricKind, string> = {
   output: "Aucune production chiffrée",
@@ -72,6 +81,25 @@ export function MetricSection({
     ? [...score.rows].sort((a, b) => a.metric.name.localeCompare(b.metric.name, "fr"))
     : score.rows;
 
+  /**
+   * Regroupement par domaine de vie, dans l'ordre du produit.
+   *
+   * L'en-tête n'apparaît qu'à partir de deux domaines : sur une seule
+   * catégorie, il n'annonce rien et ne fait qu'ajouter une ligne de bruit
+   * au-dessus de chaque section.
+   */
+  const groups = useMemo(() => {
+    const byCategory = new Map<HabitCategory, MetricRow[]>();
+    for (const row of rows) {
+      const bucket = byCategory.get(row.metric.category);
+      if (bucket === undefined) byCategory.set(row.metric.category, [row]);
+      else bucket.push(row);
+    }
+    return [...byCategory.entries()].sort(
+      (a, b) => CATEGORIES.indexOf(a[0]) - CATEGORIES.indexOf(b[0]),
+    );
+  }, [rows]);
+
   return (
     <Card className="mb-4">
       <CardHeader
@@ -115,17 +143,28 @@ export function MetricSection({
         />
       ) : (
         <div className="divide-border divide-y">
-          {rows.map((row) => (
-            // La période fait partie de la clé : changer de mois doit repartir
-            // des champs du nouveau mois, pas garder ceux de l'ancien.
-            <MetricLine
-              key={`${row.metric.id}|${row.entry.period}`}
-              row={row}
-              editing={editing}
-              onChange={(patch) => onChangeEntry(row.metric.id, patch)}
-              onRemove={() => onRemoveEntry(row.metric.id)}
-              onEdit={() => onEdit(row.metric)}
-            />
+          {groups.map(([category, groupRows]) => (
+            <div key={category}>
+              {groups.length > 1 && (
+                <p className="text-faint bg-surface-2/40 px-4 py-1.5 text-[11px] tracking-wide uppercase sm:px-5">
+                  {CATEGORY_LABELS[category]}
+                </p>
+              )}
+              <div className="divide-border divide-y">
+                {groupRows.map((row) => (
+                  // La période fait partie de la clé : changer de mois doit
+                  // repartir des champs du nouveau mois, pas garder l'ancien.
+                  <MetricLine
+                    key={`${row.metric.id}|${row.entry.period}`}
+                    row={row}
+                    editing={editing}
+                    onChange={(patch) => onChangeEntry(row.metric.id, patch)}
+                    onRemove={() => onRemoveEntry(row.metric.id)}
+                    onEdit={() => onEdit(row.metric)}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
