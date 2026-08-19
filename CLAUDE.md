@@ -12,8 +12,8 @@
 | | |
 |---|---|
 | Milestones | **M0, M2, M3, M4, M5, M6, M7 : faits** (17/08/2026) · **Bilan mensuel à trois couches** (19/08/2026) |
-| Reste | M1 (auth), M8 (couple), M9 (revue hebdo + analytics avancées), M10 (polish) |
-| Vérifications | `typecheck` ✅ · `test` ✅ 176 tests · `build` ✅ 15 routes · `dev` ✅ · `lint` ⚠️ voir ci-dessous |
+| Reste | M1 (suite d'autorisation en CI), M8 (couple), M9 (revue hebdo + analytics avancées), M10 (polish) |
+| Vérifications | `typecheck` ✅ · `test` ✅ 194 tests · `build` ✅ 15 routes · `dev` ✅ · `lint` ⚠️ voir ci-dessous |
 | Décisions ouvertes | §14 — codées sur les valeurs par défaut recommandées, à confirmer |
 
 **Fait** : `src/lib/domain/` complet (planning versionné, scoring, streaks avec joker,
@@ -94,15 +94,38 @@ fonctions PL/pgSQL répondent (`daily_score` renvoie bien `null` sur un jour neu
 complet du lien vivant est validé : création, lecture avec le bon secret, `[]` avec un mauvais,
 révocation, puis `[]` définitif.
 
-**Non vérifié : l'isolation RLS.** Ces tests ont tourné avec la clé `service_role`, qui
-court-circuite toutes les policies. Ils prouvent que les tables et les formules existent, **rien**
-sur l'étanchéité entre comptes. La passe qui compte — « Grace tente de lire les données de Ryan,
-par tous les chemins » — attend que les deux comptes existent.
+**Isolation entre comptes vérifiée (19/08/2026)** — la passe qui compte, avec deux comptes réels
+et leurs propres jetons, jamais la clé `service_role` :
 
-**Aucun compte n'existe encore.** `supabase/seed.sql` n'a jamais été exécuté et ne doit pas
-l'être sur un projet hébergé : ses mots de passe sont dans un dépôt public. Créer les comptes
-depuis le dashboard, avec **Auto Confirm User coché** (le projet a `mailer_autoconfirm = false`,
-donc un compte non confirmé ne peut pas se connecter).
+| Chemin tenté par le compte B sur les données de A | Résultat |
+|---|---|
+| `user_state` sans filtre · trié · `count` | uniquement la ligne de B |
+| `user_state?user_id=eq.<A>` · filtre `neq` | `[]` |
+| `profiles`, `habits`, `goals`, `habit_logs`, `reviews`, `vision_*` | `[]` |
+| Jointure imbriquée `profiles?select=id,habits(...)` | `[]` |
+| `INSERT` d'une ligne au nom de A | **HTTP 403**, refusé par la policy |
+| `UPDATE` / `DELETE` sur la ligne de A | `[]` — aucune ligne touchée |
+
+Contrôle inverse : chacun lit bien ses propres données, et la ligne de A est ressortie intacte.
+Côté application, deux sessions dans le même navigateur ont **deux miroirs locaux distincts**
+(clé suffixée par l'identifiant), donc rien ne fuit non plus par `localStorage`.
+
+⚠️ Ce test est **manuel**, pas en CI. Le §11 demande une suite d'autorisation qui tourne à chaque
+commit ; elle reste à écrire.
+
+**Deux comptes existent** (19/08/2026). `supabase/seed.sql` n'a toujours pas été exécuté et ne
+doit pas l'être sur un projet hébergé : ses mots de passe sont dans un dépôt public. Créer les
+comptes depuis le dashboard, avec **Auto Confirm User coché** (le projet a
+`mailer_autoconfirm = false`, donc un compte non confirmé ne peut pas se connecter).
+
+**Chaîne live vérifiée de bout en bout (19/08/2026)** : connexion → profil créé par le
+déclencheur → lecture `user_state` → onboarding → écriture `201` → **reconnexion depuis un
+navigateur vierge qui retrouve les données côté serveur**. Un document `v6` en base a été migré
+en `v7` et réécrit sans perte. À savoir : la première connexion prend six à neuf secondes en dev,
+sans aucun retour visuel au-delà du libellé « Connexion… » — ça ressemble à une panne.
+
+**Migrations 0015 à 0017 non appliquées** sur le projet hébergé. Sans conséquence tant que la
+persistance passe par `user_state`, mais l'écart entre le dépôt et la base se creuse.
 
 **Authentification** (`src/lib/auth/`) — Supabase Auth, **optionnelle** : sans variables
 d'environnement, l'application tourne en mode local sans écran de connexion. `SessionShell`
@@ -572,7 +595,7 @@ Chaque milestone est livrable et testable seul.
 | # | Milestone | Definition of Done |
 |---|---|---|
 | **M0** | Fondations | App déployée sur Vercel, layout + tokens, CI qui fait tourner Vitest. |
-| **M1** | Auth & profils | Deux comptes actifs ; Grace ne peut lire aucune ligne de Ryan (test automatisé). |
+| **M1** | Auth & profils | Deux comptes actifs ✅ ; isolation vérifiée à la main le 19/08/2026 ✅ ; **reste le test automatisé en CI**. |
 | **M2** ⭐ | Habitudes & planning | « Quelles habitudes sont attendues le 17 août ? » correct pour les 5 modes, **y compris après modification rétroactive**. |
 | **M3** ⭐ | Today & tracking | Cocher une habitude sur mobile = 1 tap, feedback instantané. |
 | **M4** | Scoring & streaks | Tous les invariants de §5 couverts par des tests. |
