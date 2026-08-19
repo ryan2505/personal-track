@@ -8,7 +8,11 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Field";
 import { cadenceOf, type Metric, type MetricKind, type MetricsScore, type Period } from "@/lib/domain";
-import { formatPeriod, METRIC_KIND_LABELS } from "@/lib/labels";
+/** « Aucune production », « Aucun résultat » — l'accord suit le mot, pas le type. */
+const EMPTY_TITLES: Record<MetricKind, string> = {
+  output: "Aucune production chiffrée",
+  result: "Aucun résultat chiffré",
+};
 import type { EntryPatch } from "@/lib/store/StoreProvider";
 import { formatPercent } from "@/lib/utils";
 
@@ -91,7 +95,7 @@ export function MetricSection({
 
       {rows.length === 0 ? (
         <EmptyState
-          title={`Aucune ${METRIC_KIND_LABELS[kind].toLowerCase()} sur ${formatPeriod(period)}`}
+          title={`${EMPTY_TITLES[kind]} sur cette ${word === "la semaine" ? "semaine" : "période"}`}
           description={
             previousPeriodCount > 0
               ? `Reconduis ${word === "la semaine" ? "la semaine précédente" : "le mois précédent"}, ou pose de nouvelles cibles.`
