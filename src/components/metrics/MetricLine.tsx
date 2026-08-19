@@ -40,14 +40,16 @@ export function MetricLine({
             <span className={cn("truncate", row.reached && "text-muted")}>{metric.name}</span>
           </p>
           <p className="text-faint mt-0.5 text-xs">
-            {metric.group ?? METRIC_DIRECTION_LABELS[metric.direction]}
+            {row.rollup === undefined
+              ? (metric.group ?? METRIC_DIRECTION_LABELS[metric.direction])
+              : `hebdomadaire · ${row.rollup.weeksEntered} semaine${row.rollup.weeksEntered > 1 ? "s" : ""} saisie${row.rollup.weeksEntered > 1 ? "s" : ""} sur ${row.rollup.weeksInMonth}`}
             {!row.scorable && " · suivi seul"}
           </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           <span className="tabular text-sm">{row.scorable ? formatPercent(ratio) : "—"}</span>
-          {editing && (
+          {editing && row.rollup === undefined && (
             <>
               <button
                 aria-label={`Modifier ${metric.name}`}
@@ -70,7 +72,13 @@ export function MetricLine({
 
       {row.scorable && <ProgressBar ratio={ratio} className="mt-3" tone={row.reached ? "success" : "accent"} />}
 
-      {editing ? (
+      {editing && row.rollup !== undefined && (
+        <p className="text-faint mt-3 text-xs leading-relaxed">
+          Total de tes semaines — il se corrige dans la vue Semaine, pas ici.
+        </p>
+      )}
+
+      {editing && row.rollup === undefined ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <NumberField
             label="Cible"

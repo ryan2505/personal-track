@@ -8,8 +8,17 @@
 /** Date locale de l'utilisateur, format `YYYY-MM-DD`. Jamais un instant UTC. */
 export type LocalDate = string;
 
-/** Mois local, format `YYYY-MM`. Unité de période des métriques mensuelles. */
+/** Mois local, format `YYYY-MM`. */
 export type MonthPeriod = string;
+
+/** Semaine ISO, format `YYYY-Www` — `2026-W34`. */
+export type WeekPeriod = string;
+
+/**
+ * Une période de métrique : un mois (`2026-08`) ou une semaine (`2026-W34`).
+ * Le format est discriminant, ce qui évite de trimballer la cadence à côté.
+ */
+export type Period = MonthPeriod | WeekPeriod;
 
 export type HabitType = "boolean" | "numeric" | "duration" | "quantity" | "counter";
 
@@ -227,6 +236,16 @@ export interface Review extends ReviewAnswers {
 export type MetricKind = "output" | "result";
 
 /**
+ * Rythme auquel la cible se repose.
+ *
+ * C'est la seule différence entre un objectif hebdomadaire et un objectif
+ * mensuel — pas deux systèmes, une cadence. « Publier 5 contenus par semaine »
+ * et « 300 000 FCFA par mois » suivent exactement le même chemin de calcul,
+ * de saisie, de reconduction et de gel.
+ */
+export type MetricCadence = "weekly" | "monthly";
+
+/**
  * Sens de la cible. Plus n'est pas toujours mieux : les dépenses baissent, le
  * chiffre d'affaires monte, un poids de forme se maintient.
  *
@@ -244,6 +263,7 @@ export interface Metric {
   /** « Contenus publiés », « Chiffre d'affaires ». */
   name: string;
   kind: MetricKind;
+  cadence: MetricCadence;
   category: HabitCategory;
   /**
    * Regroupement libre à l'intérieur d'un domaine de vie — « YouTube »,
@@ -270,7 +290,8 @@ export interface Metric {
  */
 export interface MetricEntry {
   metricId: string;
-  period: MonthPeriod;
+  /** Mois ou semaine ISO, selon la cadence de la métrique. */
+  period: Period;
   /** `null` = suivi sans cible (CTR observé) : affiché, jamais scoré. */
   target: number | null;
   /** `null` = pas encore saisi. À ne jamais confondre avec `0`. */

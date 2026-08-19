@@ -1,14 +1,26 @@
-import { compareDates, endOfMonth, minDate, startOfMonth } from "./dates";
+import { compareDates, minDate, startOfMonth } from "./dates";
 import { goalProgress, resolveCurrentValue } from "./goals";
 import {
+  cadenceOf,
   indexEntries,
   metricsScore,
   monthPeriod,
+  periodEnd,
   periodStart,
   type MetricsScore,
 } from "./metrics";
 import { consistency, indexLogs } from "./scoring";
-import type { Goal, Habit, HabitLog, LocalDate, Metric, MetricEntry, MonthPeriod } from "./types";
+import type {
+  Goal,
+  Habit,
+  HabitLog,
+  LocalDate,
+  Metric,
+  MetricCadence,
+  MetricEntry,
+  MonthPeriod,
+  Period,
+} from "./types";
 
 /**
  * Bilan mensuel.
@@ -47,9 +59,11 @@ export interface GoalScoreRow {
 }
 
 export interface MonthlyScorecard {
-  monthStart: LocalDate;
-  monthEnd: LocalDate;
-  period: MonthPeriod;
+  /** Premier jour de la période analysée — 1er du mois, ou lundi. */
+  start: LocalDate;
+  end: LocalDate;
+  period: Period;
+  cadence: MetricCadence;
   /** Dernier jour réellement pris en compte : un mois en cours s'arrête à aujourd'hui. */
   asOf: LocalDate;
   inProgress: boolean;
@@ -92,22 +106,36 @@ export interface ScorecardInput {
   today: LocalDate;
 }
 
-export function monthlyScorecard({
+/**
+ * Bilan d'un mois. Enveloppe de `periodScorecard`, conservée parce que le mois
+ * reste la période de référence : revues, tendance annuelle, résumé du
+ * tableau de bord.
+ */
+export function monthlyScorecard(input: ScorecardInput): MonthlyScorecard {
+  return periodScorecard({ ...input, period: monthPeriod(startOfMonth(input.month)) });
+}
+
+/**
+ * Bilan d'une période, semaine ou mois.
+ *
+ * Les trois couches se calculent exactement de la même façon aux deux
+ * cadences — c'est tout l'intérêt d'avoir généralisé la période plutôt que
+ * d'écrire un second bilan hebdomadaire à côté.
+ */
+export function periodScorecard({
   goals,
   habits,
   logs,
   metrics,
   metricEntries,
-  month,
+  period,
   today,
-}: ScorecardInput): MonthlyScorecard {
-  const monthStart = startOfMonth(month);
-  const monthEnd = endOfMonth(month);
-  // Un mois en cours ne doit pas être jugé sur des jours qui n'ont pas eu lieu.
-  const asOf = minDate(monthEnd, today);
-  const inProgress = compareDates(today, monthEnd) <= 0 && compareDates(today, monthStart) >= 0;
-
-  const period = monthPeriod(monthStart);
+}: Omit<ScorecardInput, "month"> & { period: Period }): MonthlyScorecard {
+  const start = periodStart(period);
+  const end = periodEnd(period);
+  // Une période en cours ne doit pas être jugée sur des jours qui n'ont pas eu lieu.
+  const asOf = minDate(end, today);
+  const inProgress = compareDates(today, end) <= 0 && compareDates(today, start) >= 0;
   const index = indexLogs(logs);
   const entryIndex = indexEntries(metricEntries);
   const habitsById = new Map<string, Habit>(habits.map((habit) => [habit.id, habit]));
@@ -117,8 +145,8 @@ export function monthlyScorecard({
       (goal) =>
         goal.status !== "abandoned" &&
         // La fenêtre de l'objectif recoupe le mois analysé.
-        compareDates(goal.startDate, monthEnd) <= 0 &&
-        (goal.dueDate === null || compareDates(goal.dueDate, monthStart) >= 0),
+        compareDates(goal.startDate, end) <= 0 &&
+        (goal.dueDate === null || compareDates(goal.dueDate, start) >= 0),
     )
     .map((goal) => {
       const achieved = resolveCurrentValue(goal, logs, habitsById, asOf, metricEntries);
@@ -132,7 +160,7 @@ export function monthlyScorecard({
         deficit: target === null ? null : Math.max(0, target - achieved),
         ratio: progress.ratio,
         reached: progress.status === "completed",
-        spansBeyondMonth: goal.dueDate === null || compareDates(goal.dueDate, monthEnd) > 0,
+        spansBeyondMonth: goal.dueDate === null || compareDates(goal.dueDate, end) > 0,
       };
     })
     .sort((a, b) => {
@@ -144,12 +172,13 @@ export function monthlyScorecard({
   const measurable = rows.filter((row) => row.target !== null);
   const goalsReached = measurable.filter((row) => row.reached).length;
 
-  const habitResult = consistency(habits, index, monthStart, asOf);
+  const habitResult = consistency(habits, index, start, asOf);
 
   return {
-    monthStart,
-    monthEnd,
+    start,
+    end,
     period,
+    cadence: cadenceOf(period),
     asOf,
     inProgress,
     execution: metricsScore(metrics, entryIndex, period, "output"),
@@ -225,6 +254,11 @@ export function scorecardVerdict(card: MonthlyScorecard): {
   title: string;
   detail: string;
 } {
+  // Le mot change avec la cadence : « mois en cours » sur une semaine se lit
+  // comme un bug, et sape la confiance dans le reste des chiffres.
+  const word = card.cadence === "weekly" ? "semaine" : "mois";
+  const thisOne = card.cadence === "weekly" ? "cette semaine" : "ce mois-ci";
+
   const nothingTracked =
     card.goalsTracked === 0 &&
     card.habitsExpected === 0 &&
@@ -234,7 +268,7 @@ export function scorecardVerdict(card: MonthlyScorecard): {
   if (nothingTracked) {
     return {
       tone: "neutral",
-      title: "Rien à mesurer ce mois-ci",
+      title: `Rien à mesurer ${thisOne}`,
       detail: "Aucun objectif mesurable, habitude planifiée ni métrique sur cette période.",
     };
   }
@@ -243,7 +277,7 @@ export function scorecardVerdict(card: MonthlyScorecard): {
     return {
       tone: "celebrate",
       title: "Tous tes objectifs sont atteints.",
-      detail: `${card.goalsReached} sur ${card.goalsTracked}, mois terminé. C'est le genre de mois qui compose une année.`,
+      detail: `${card.goalsReached} sur ${card.goalsTracked}, ${word} terminé${card.cadence === "weekly" ? "e" : ""}. C'est le genre de ${word} qui compose une année.`,
     };
   }
 
@@ -251,14 +285,14 @@ export function scorecardVerdict(card: MonthlyScorecard): {
     return {
       tone: "celebrate",
       title: "Tous tes objectifs sont déjà atteints.",
-      detail: "Et le mois n'est pas fini. Tu peux relever une cible, ou tenir jusqu'au bout.",
+      detail: `Et ${card.cadence === "weekly" ? "la semaine n'est pas finie" : "le mois n'est pas fini"}. Tu peux relever une cible, ou tenir jusqu'au bout.`,
     };
   }
 
   if (card.consistency !== null && card.consistency >= 0.8) {
     return {
       tone: "solid",
-      title: "Mois solide.",
+      title: card.cadence === "weekly" ? "Semaine solide." : "Mois solide.",
       detail:
         card.goalsTracked === 0
           ? "Ta constance est là, même sans objectif chiffré."
@@ -268,7 +302,13 @@ export function scorecardVerdict(card: MonthlyScorecard): {
 
   return {
     tone: "neutral",
-    title: card.inProgress ? "Mois en cours" : "Bilan du mois",
+    title: card.inProgress
+      ? card.cadence === "weekly"
+        ? "Semaine en cours"
+        : "Mois en cours"
+      : card.cadence === "weekly"
+        ? "Bilan de la semaine"
+        : "Bilan du mois",
     detail:
       card.goalsTracked === 0
         ? "Aucun objectif chiffré : seule la constance est mesurée."

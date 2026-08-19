@@ -6,6 +6,7 @@ import { useState } from "react";
 import { TodayGoals } from "@/components/goals/TodayGoals";
 import { HabitRow } from "@/components/habits/HabitRow";
 import { LogDetailModal } from "@/components/habits/LogDetailModal";
+import { WeekTargetsNudge } from "@/components/metrics/WeekTargetsNudge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -65,6 +66,8 @@ export default function TodayPage() {
           <p className="text-faint tabular text-xs">Record : {streaks.longest}</p>
         </div>
       </Card>
+
+      <WeekTargetsNudge />
 
       <TodayGoals date={today} />
 

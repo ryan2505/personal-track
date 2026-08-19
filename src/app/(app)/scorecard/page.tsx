@@ -14,27 +14,28 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
-  addDays,
   diagnoseMonth,
-  endOfMonth,
   findMonthlyReview,
   freezeScorecard,
   indexEntries,
   metricsForPeriod,
-  monthlyScorecard,
+  periodFor,
+  periodScorecard,
+  periodStart,
   scorecardVerdict,
   shiftPeriod,
-  startOfMonth,
   type LocalDate,
   type Metric,
+  type MetricCadence,
   type MetricKind,
 } from "@/lib/domain";
 import {
+  CADENCE_SHORT,
   formatLongDate,
-  formatMonth,
   formatPeriod,
   LAYER_LABELS,
   LAYER_QUESTIONS,
+  METRIC_CADENCES,
 } from "@/lib/labels";
 import { useStore } from "@/lib/store/StoreProvider";
 import { cn } from "@/lib/utils";
@@ -42,27 +43,32 @@ import { cn } from "@/lib/utils";
 export default function ScorecardPage() {
   const store = useStore();
   const { state, today } = store;
-  const [month, setMonth] = useState<LocalDate>(today);
+  const [cadence, setCadence] = useState<MetricCadence>("monthly");
+  /** N'importe quelle date de la période affichée. La cadence fait le reste. */
+  const [anchor, setAnchor] = useState<LocalDate>(today);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<{ metric: Metric | null; kind: MetricKind } | null>(null);
 
   const card = useMemo(
     () =>
-      monthlyScorecard({
+      periodScorecard({
         goals: state.goals,
         habits: state.habits,
         logs: state.logs,
         metrics: state.metrics,
         metricEntries: state.metricEntries,
-        month,
+        period: periodFor(cadence, anchor),
         today,
       }),
-    [state.goals, state.habits, state.logs, state.metrics, state.metricEntries, month, today],
+    [state.goals, state.habits, state.logs, state.metrics, state.metricEntries, cadence, anchor, today],
   );
+
+  const step = (amount: number) => setAnchor(periodStart(shiftPeriod(card.period, amount)));
 
   const previous = useMemo(() => shiftPeriod(card.period, -1), [card.period]);
   const next = useMemo(() => shiftPeriod(card.period, 1), [card.period]);
-  const review = findMonthlyReview(state.reviews, card.period);
+  const isMonthly = card.cadence === "monthly";
+  const review = isMonthly ? findMonthlyReview(state.reviews, card.period) : undefined;
 
   /** Ce que « préparer le mois suivant » reconduirait : tout ce qui est au contrat. */
   const carryToNext = useMemo(() => {
@@ -87,17 +93,22 @@ export default function ScorecardPage() {
 
     return (kind: MetricKind) => {
       const own = state.metrics.filter(
-        (metric) => metric.kind === kind && metric.archivedAt === null,
+        (metric) =>
+          metric.kind === kind &&
+          metric.archivedAt === null &&
+          // Une métrique mensuelle n'a rien à faire dans une vue semaine : son
+          // entrée y serait posée sur une période qu'elle ne lit jamais.
+          metric.cadence === card.cadence,
       );
       return {
         available: own.filter((metric) => !inMonth.has(metric.id)),
         carryable: own.filter((metric) => carryable.has(metric.id) && !inMonth.has(metric.id)),
       };
     };
-  }, [state.metrics, state.metricEntries, card.period, previous]);
+  }, [state.metrics, state.metricEntries, card.period, card.cadence, previous]);
 
   const verdict = scorecardVerdict(card);
-  const isFuture = card.monthStart > today;
+  const isFuture = card.start > today;
 
   const section = (kind: MetricKind) => {
     const { available, carryable } = offers(kind);
@@ -132,20 +143,20 @@ export default function ScorecardPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
       <PageHeader
-        title="Bilan mensuel"
+        title="Bilan"
         subtitle="Ce que tu as fait, ce que tu as produit, ce que ça a généré."
         action={
           <div className="flex gap-1">
             <button
-              aria-label="Mois précédent"
-              onClick={() => setMonth(addDays(startOfMonth(month), -1))}
+              aria-label="Période précédente"
+              onClick={() => step(-1)}
               className="text-muted hover:text-text flex size-9 items-center justify-center rounded-md"
             >
               <ChevronLeft className="size-4" />
             </button>
             <button
-              aria-label="Mois suivant"
-              onClick={() => setMonth(addDays(endOfMonth(month), 1))}
+              aria-label="Période suivante"
+              onClick={() => step(1)}
               className="text-muted hover:text-text flex size-9 items-center justify-center rounded-md"
             >
               <ChevronRight className="size-4" />
@@ -154,9 +165,29 @@ export default function ScorecardPage() {
         }
       />
 
+      <div className="border-border mb-4 flex w-fit overflow-hidden rounded-md border">
+        {METRIC_CADENCES.map((item) => (
+          <button
+            key={item}
+            onClick={() => {
+              setCadence(item);
+              // On reste sur la même date : passer de « semaine 34 » à « août »
+              // doit montrer le mois qui contient cette semaine, pas aujourd'hui.
+              setEditing(false);
+            }}
+            className={cn(
+              "px-4 py-2 text-xs transition-colors",
+              cadence === item ? "bg-surface-2 text-text" : "text-muted hover:text-text",
+            )}
+          >
+            {CADENCE_SHORT[item]}
+          </button>
+        ))}
+      </div>
+
       <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="text-faint text-xs capitalize">
-          {formatMonth(card.monthStart)}
+        <p className="text-faint text-xs first-letter:capitalize">
+          {formatPeriod(card.period)}
           {card.inProgress && (
             <span className="normal-case"> · en cours, arrêté au {formatLongDate(card.asOf)}</span>
           )}
@@ -171,8 +202,8 @@ export default function ScorecardPage() {
       {isFuture ? (
         <Card>
           <EmptyState
-            title="Mois à venir"
-            description="Rien à mesurer : ce mois n'a pas encore commencé."
+            title={isMonthly ? "Mois à venir" : "Semaine à venir"}
+            description="Rien à mesurer : cette période n'a pas encore commencé."
           />
         </Card>
       ) : (
@@ -205,10 +236,11 @@ export default function ScorecardPage() {
           {section("output")}
           {section("result")}
 
-          <Observations observations={diagnoseMonth(card)} />
+          {isMonthly && <Observations observations={diagnoseMonth(card)} />}
 
           <GoalScoreList rows={card.goals} />
 
+          {isMonthly && (
           <MonthlyReview
             review={review}
             card={card}
@@ -219,11 +251,19 @@ export default function ScorecardPage() {
             nextMonthLabel={formatPeriod(next)}
             canPrepareNext={carryToNext.length > 0}
           />
+          )}
 
           {card.inProgress && (
             <p className="text-faint mt-4 text-xs leading-relaxed">
-              Le mois n&apos;est pas terminé : seules les journées écoulées sont comptées. Les jours
-              à venir ne pèsent pas encore contre toi.
+              La période n&apos;est pas terminée : seules les journées écoulées sont comptées. Les
+              jours à venir ne pèsent pas encore contre toi.
+            </p>
+          )}
+
+          {!isMonthly && (
+            <p className="text-faint mt-4 text-xs leading-relaxed">
+              La lecture croisée des couches et la revue vivent à l&apos;échelle du mois. Tes
+              cibles hebdomadaires y remontent, additionnées sur les semaines du mois.
             </p>
           )}
         </>
@@ -233,14 +273,20 @@ export default function ScorecardPage() {
         <MetricForm
           key={form.metric?.id ?? "new"}
           metric={form.metric}
+          defaultCadence={cadence}
           open
           onClose={() => setForm(null)}
           onSubmit={(input) => {
             if (form.metric === null) {
               const created = store.addMetric({ ...input, kind: form.kind });
-              // Une métrique créée depuis un mois y entre aussitôt : sinon elle
-              // disparaîtrait de l'écran d'où on vient de la créer.
-              store.setMetricEntry(created.id, card.period, { target: null, actual: null });
+              // Elle entre aussitôt au contrat de la période courante — sinon
+              // elle disparaîtrait de l'écran d'où on vient de la créer. La
+              // période suit SA cadence : créer une cible hebdomadaire depuis
+              // la vue mensuelle la pose sur la semaine en cours.
+              store.setMetricEntry(created.id, periodFor(created.cadence, anchor), {
+                target: null,
+                actual: null,
+              });
             } else {
               store.updateMetric(form.metric.id, input);
             }

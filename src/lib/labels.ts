@@ -1,13 +1,15 @@
+import { isWeekPeriod, periodEnd, periodStart } from "@/lib/domain";
 import type {
   GoalScope,
   Habit,
   HabitCategory,
   HabitType,
   Metric,
+  MetricCadence,
   MetricDirection,
   MetricKind,
   MetricValueType,
-  MonthPeriod,
+  Period,
   ReviewField,
   ScheduleKind,
   ScheduleRule,
@@ -154,6 +156,26 @@ export const LAYER_QUESTIONS = {
   impact: "Ce que ça a généré",
 } as const;
 
+export const METRIC_CADENCES: MetricCadence[] = ["weekly", "monthly"];
+
+export const CADENCE_LABELS: Record<MetricCadence, string> = {
+  weekly: "Chaque semaine",
+  monthly: "Chaque mois",
+};
+
+/** Étiquette courte, pour les onglets et les lignes. */
+export const CADENCE_SHORT: Record<MetricCadence, string> = {
+  weekly: "Semaine",
+  monthly: "Mois",
+};
+
+export const CADENCE_HINTS: Record<MetricCadence, string> = {
+  weekly:
+    "La cible se repose chaque lundi. Pour ce qui se pilote à la semaine : contenus, prospection, séances.",
+  monthly:
+    "La cible se repose le 1er. Pour ce qui ne se juge pas en sept jours : chiffre d'affaires, abonnés, poids.",
+};
+
 export const METRIC_DIRECTIONS: MetricDirection[] = ["increase", "decrease", "maintain"];
 
 export const METRIC_DIRECTION_LABELS: Record<MetricDirection, string> = {
@@ -260,9 +282,29 @@ const PERIOD_FORMAT = new Intl.DateTimeFormat("fr-FR", {
   timeZone: "UTC",
 });
 
-/** « août 2026 » à partir d'un `2026-08`. */
-export function formatPeriod(period: MonthPeriod): string {
-  return PERIOD_FORMAT.format(new Date(`${period}-01T00:00:00Z`));
+const DAY_MONTH_FORMAT = new Intl.DateTimeFormat("fr-FR", {
+  day: "numeric",
+  month: "long",
+  timeZone: "UTC",
+});
+
+/**
+ * « août 2026 », ou « semaine 34 · 17 – 23 août ».
+ *
+ * Le numéro de semaine seul ne dit rien à personne : on donne toujours les
+ * dates avec, sinon l'utilisateur doit aller chercher un calendrier pour savoir
+ * de quelle semaine on parle.
+ */
+export function formatPeriod(period: Period): string {
+  if (!isWeekPeriod(period)) {
+    return PERIOD_FORMAT.format(new Date(`${period}-01T00:00:00Z`));
+  }
+
+  const start = periodStart(period);
+  const end = periodEnd(period);
+  const asUtc = (date: string) => new Date(`${date}T00:00:00Z`);
+
+  return `semaine ${Number(period.slice(6))} · ${DAY_MONTH_FORMAT.format(asUtc(start))} – ${DAY_MONTH_FORMAT.format(asUtc(end))}`;
 }
 
 /** « 45 / 60 min ». Le formatage vit ici, jamais dans un composant. */

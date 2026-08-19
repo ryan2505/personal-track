@@ -41,7 +41,7 @@ export function ScorecardSummary() {
   return (
     <Card className="mb-6">
       <CardHeader
-        title={<span className="capitalize">{formatMonth(card.monthStart)}</span>}
+        title={<span className="capitalize">{formatMonth(card.start)}</span>}
         action={
           <Link href="/scorecard" className="text-muted hover:text-text text-xs">
             Voir le bilan

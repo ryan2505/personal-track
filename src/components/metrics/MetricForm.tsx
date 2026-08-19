@@ -5,10 +5,20 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field, Select, TextInput } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
-import type { HabitCategory, Metric, MetricDirection, MetricKind, MetricValueType } from "@/lib/domain";
+import type {
+  HabitCategory,
+  Metric,
+  MetricCadence,
+  MetricDirection,
+  MetricKind,
+  MetricValueType,
+} from "@/lib/domain";
 import {
+  CADENCE_HINTS,
+  CADENCE_LABELS,
   CATEGORIES,
   CATEGORY_LABELS,
+  METRIC_CADENCES,
   METRIC_DIRECTION_HINTS,
   METRIC_DIRECTION_LABELS,
   METRIC_DIRECTIONS,
@@ -26,12 +36,15 @@ const KIND_HINTS: Record<MetricKind, string> = {
 
 export function MetricForm({
   metric,
+  defaultCadence,
   open,
   onClose,
   onSubmit,
   onArchive,
 }: {
   metric: Metric | null;
+  /** Cadence proposée à la création — celle de la vue d'où l'on vient. */
+  defaultCadence: MetricCadence;
   open: boolean;
   onClose: () => void;
   onSubmit: (metric: Omit<Metric, "id" | "archivedAt">) => void;
@@ -39,6 +52,7 @@ export function MetricForm({
 }) {
   const [name, setName] = useState(metric?.name ?? "");
   const [kind, setKind] = useState<MetricKind>(metric?.kind ?? "output");
+  const [cadence, setCadence] = useState<MetricCadence>(metric?.cadence ?? defaultCadence);
   const [category, setCategory] = useState<HabitCategory>(metric?.category ?? "business");
   const [group, setGroup] = useState(metric?.group ?? "");
   const [unit, setUnit] = useState(metric?.unit ?? "");
@@ -51,6 +65,7 @@ export function MetricForm({
     onSubmit({
       name: name.trim(),
       kind,
+      cadence,
       category,
       group: group.trim() === "" ? null : group.trim(),
       unit: unit.trim() === "" ? null : unit.trim(),
@@ -87,6 +102,34 @@ export function MetricForm({
                 )}
               >
                 {METRIC_KIND_LABELS[item]}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field
+          label="Rythme"
+          hint={
+            metric === null
+              ? CADENCE_HINTS[cadence]
+              : "Le rythme ne se change pas après coup : les périodes déjà chiffrées n'auraient plus de sens. Arrête cette métrique et crée-en une autre."
+          }
+        >
+          <div className="grid grid-cols-2 gap-2">
+            {METRIC_CADENCES.map((item) => (
+              <button
+                key={item}
+                onClick={() => metric === null && setCadence(item)}
+                disabled={metric !== null && metric.cadence !== item}
+                className={cn(
+                  "min-h-11 rounded-md border px-3 text-sm transition-colors",
+                  cadence === item
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-border text-muted hover:border-border-strong",
+                  metric !== null && "disabled:opacity-30",
+                )}
+              >
+                {CADENCE_LABELS[item]}
               </button>
             ))}
           </div>

@@ -1,11 +1,20 @@
-import { compareDates, endOfMonth } from "./dates";
+import {
+  addDays,
+  compareDates,
+  endOfMonth,
+  isoWeek,
+  isoWeekStart,
+  startOfMonth,
+} from "./dates";
 import { ratioFor } from "./scoring";
 import type {
   LocalDate,
   Metric,
+  MetricCadence,
   MetricEntry,
   MetricKind,
   MonthPeriod,
+  Period,
 } from "./types";
 
 /**
@@ -26,35 +35,92 @@ import type {
  */
 
 // ── Périodes ────────────────────────────────────────────────────────────────
+//
+// Une période est un mois (`2026-08`) ou une semaine ISO (`2026-W34`). Le
+// format se suffit à lui-même : aucune fonction n'a besoin qu'on lui passe la
+// cadence à côté, et un identifiant mal formé ne peut pas se faire passer pour
+// l'autre cadence.
+
+export function isWeekPeriod(period: Period): boolean {
+  return period.includes("W");
+}
+
+export function cadenceOf(period: Period): MetricCadence {
+  return isWeekPeriod(period) ? "weekly" : "monthly";
+}
 
 /** Le mois auquel appartient une date locale. */
 export function monthPeriod(date: LocalDate): MonthPeriod {
   return date.slice(0, 7);
 }
 
-export function periodStart(period: MonthPeriod): LocalDate {
-  return `${period}-01`;
+/** La semaine ISO à laquelle appartient une date locale. */
+export function weekPeriod(date: LocalDate): Period {
+  const { year, week } = isoWeek(date);
+  return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
-export function periodEnd(period: MonthPeriod): LocalDate {
-  return endOfMonth(periodStart(period));
+/** La période d'une date, selon la cadence demandée. */
+export function periodFor(cadence: MetricCadence, date: LocalDate): Period {
+  return cadence === "weekly" ? weekPeriod(date) : monthPeriod(date);
 }
 
-/** Décale d'un nombre de mois. `-1` = le mois précédent. */
-export function shiftPeriod(period: MonthPeriod, months: number): MonthPeriod {
+export function periodStart(period: Period): LocalDate {
+  if (!isWeekPeriod(period)) return `${period}-01`;
+  return isoWeekStart(Number(period.slice(0, 4)), Number(period.slice(6)));
+}
+
+export function periodEnd(period: Period): LocalDate {
+  const start = periodStart(period);
+  return isWeekPeriod(period) ? addDays(start, 6) : endOfMonth(start);
+}
+
+/** Décale d'un nombre de périodes de même cadence. `-1` = la précédente. */
+export function shiftPeriod(period: Period, amount: number): Period {
+  if (isWeekPeriod(period)) {
+    // Passer par les dates plutôt que par le numéro de semaine : les années
+    // ISO font 52 ou 53 semaines, et un modulo fixe se tromperait une année
+    // sur cinq.
+    return weekPeriod(addDays(periodStart(period), amount * 7));
+  }
+
   const year = Number(period.slice(0, 4));
   const month = Number(period.slice(5, 7));
-  const total = year * 12 + (month - 1) + months;
+  const total = year * 12 + (month - 1) + amount;
   const shiftedYear = Math.floor(total / 12);
   const shiftedMonth = total - shiftedYear * 12 + 1;
   return `${String(shiftedYear).padStart(4, "0")}-${String(shiftedMonth).padStart(2, "0")}`;
+}
+
+/**
+ * Les semaines rattachées à un mois : celles dont le **lundi** y tombe.
+ *
+ * Une semaine ISO chevauche presque toujours deux mois ; il faut donc une règle,
+ * et celle-ci a le mérite d'être énonçable en une phrase à l'utilisateur.
+ * Chaque semaine appartient à exactement un mois, aucune n'est comptée deux
+ * fois ni oubliée.
+ */
+export function weeksInMonth(month: MonthPeriod): Period[] {
+  const monthStart = startOfMonth(periodStart(month));
+  const monthEnd = endOfMonth(monthStart);
+  const weeks: Period[] = [];
+
+  let monday = periodStart(weekPeriod(monthStart));
+  if (compareDates(monday, monthStart) < 0) monday = addDays(monday, 7);
+
+  while (compareDates(monday, monthEnd) <= 0) {
+    weeks.push(weekPeriod(monday));
+    monday = addDays(monday, 7);
+  }
+
+  return weeks;
 }
 
 // ── Index ───────────────────────────────────────────────────────────────────
 
 export type EntryIndex = ReadonlyMap<string, MetricEntry>;
 
-function entryKey(metricId: string, period: MonthPeriod): string {
+function entryKey(metricId: string, period: Period): string {
   return `${metricId}|${period}`;
 }
 
@@ -69,7 +135,7 @@ export function indexEntries(entries: readonly MetricEntry[]): EntryIndex {
 export function findEntry(
   index: EntryIndex,
   metricId: string,
-  period: MonthPeriod,
+  period: Period,
 ): MetricEntry | undefined {
   return index.get(entryKey(metricId, period));
 }
@@ -121,6 +187,7 @@ export function metricGap(metric: Metric, entry: MetricEntry | undefined): numbe
 
 export interface MetricRow {
   metric: Metric;
+  /** Pour une ligne agrégée, une entrée synthétique portant les sommes. */
   entry: MetricEntry;
   /** `null` = non scorable. La ligne reste affichée. */
   ratio: number | null;
@@ -128,6 +195,12 @@ export interface MetricRow {
   reached: boolean;
   /** La ligne entre-t-elle au dénominateur du score de sa couche ? */
   scorable: boolean;
+  /**
+   * Présent quand la ligne résume plusieurs semaines dans un bilan mensuel.
+   * L'écran doit le dire : « 14 / 20 » sur 3 semaines saisies ne se lit pas
+   * comme « 14 / 20 » sur un mois entier.
+   */
+  rollup?: { weeksEntered: number; weeksInMonth: number };
 }
 
 export interface MetricsScore {
@@ -149,15 +222,26 @@ export interface MetricsScore {
 export function metricsForPeriod(
   metrics: readonly Metric[],
   index: EntryIndex,
-  period: MonthPeriod,
+  period: Period,
   kind?: MetricKind,
 ): MetricRow[] {
   const start = periodStart(period);
+  const cadence = cadenceOf(period);
   const rows: MetricRow[] = [];
 
   for (const metric of metrics) {
     if (kind !== undefined && metric.kind !== kind) continue;
     if (metric.archivedAt !== null && compareDates(metric.archivedAt, start) < 0) continue;
+
+    // Une métrique hebdomadaire vue depuis un mois passe par l'agrégation, pas
+    // par une entrée directe : elle n'en a pas pour cette période.
+    if (metric.cadence !== cadence) {
+      if (cadence === "monthly" && metric.cadence === "weekly") {
+        const rolled = rollupWeeks(metric, index, period);
+        if (rolled !== null) rows.push(rolled);
+      }
+      continue;
+    }
 
     const entry = findEntry(index, metric.id, period);
     if (entry === undefined) continue;
@@ -177,6 +261,59 @@ export function metricsForPeriod(
 }
 
 /**
+ * Une métrique hebdomadaire, résumée sur un mois.
+ *
+ * La somme est ici parfaitement légitime, contrairement à celle qu'on refuse
+ * entre métriques : ce sont les mêmes semaines de la même métrique, dans la
+ * même unité. 3 + 5 + 4 contenus font bien 12 contenus.
+ *
+ * Seules les semaines **effectivement saisies** entrent dans le total, cible
+ * comprise. Compter la cible d'une semaine dont on n'a pas relevé le résultat
+ * transformerait un mois en cours en échec dès le premier lundi, et un oubli
+ * de saisie en faute.
+ */
+function rollupWeeks(metric: Metric, index: EntryIndex, month: MonthPeriod): MetricRow | null {
+  const weeks = weeksInMonth(month);
+  let target = 0;
+  let actual = 0;
+  let entered = 0;
+  let hasTarget = false;
+
+  for (const week of weeks) {
+    const entry = findEntry(index, metric.id, week);
+    if (entry === undefined || entry.actual === null) continue;
+
+    entered += 1;
+    actual += entry.actual;
+    if (entry.target !== null) {
+      target += entry.target;
+      hasTarget = true;
+    }
+  }
+
+  if (entered === 0) return null;
+
+  const entry: MetricEntry = {
+    metricId: metric.id,
+    period: month,
+    target: hasTarget ? target : null,
+    actual,
+    note: null,
+  };
+  const ratio = metricRatio(metric, entry);
+
+  return {
+    metric,
+    entry,
+    ratio,
+    gap: metricGap(metric, entry),
+    reached: ratio === 1,
+    scorable: ratio !== null,
+    rollup: { weeksEntered: entered, weeksInMonth: weeks.length },
+  };
+}
+
+/**
  * Score d'une couche sur un mois : moyenne pondérée des ratios individuels.
  * Voir l'avertissement en tête de fichier — ce n'est volontairement pas la
  * formule de `consistency`.
@@ -184,7 +321,7 @@ export function metricsForPeriod(
 export function metricsScore(
   metrics: readonly Metric[],
   index: EntryIndex,
-  period: MonthPeriod,
+  period: Period,
   kind?: MetricKind,
 ): MetricsScore {
   const rows = metricsForPeriod(metrics, index, period, kind);
@@ -219,8 +356,8 @@ export function metricsScore(
 export function sumMetric(
   entries: readonly MetricEntry[],
   metricId: string,
-  fromPeriod: MonthPeriod,
-  toPeriod: MonthPeriod,
+  fromPeriod: Period,
+  toPeriod: Period,
 ): number {
   let total = 0;
   for (const entry of entries) {
@@ -245,8 +382,8 @@ export function sumMetric(
  */
 export function carryOverEntries(
   entries: readonly MetricEntry[],
-  from: MonthPeriod,
-  to: MonthPeriod,
+  from: Period,
+  to: Period,
   metricIds: readonly string[],
 ): MetricEntry[] {
   const index = indexEntries(entries);

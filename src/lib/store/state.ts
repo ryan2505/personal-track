@@ -50,7 +50,7 @@ export interface AppState {
   liveBoard: LiveBoardRef | null;
 }
 
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 
 export function emptyState(timezone: string): AppState {
   return {
@@ -108,7 +108,16 @@ export function migrate(raw: Record<string, unknown>, timezone: string): AppStat
     logs: Array.isArray(raw.logs) ? (raw.logs as HabitLog[]) : base.logs,
     // Introduits en v5. Un état antérieur repart simplement sans métrique : le
     // bilan mensuel retombe alors sur sa seule couche « fondation ».
-    metrics: Array.isArray(raw.metrics) ? (raw.metrics as Metric[]) : base.metrics,
+    //
+    // v7 a ajouté la cadence : toutes les métriques existantes étaient
+    // mensuelles, et doivent le rester. Une cadence absente n'est pas une
+    // métrique cassée, c'est une métrique d'avant la semaine.
+    metrics: Array.isArray(raw.metrics)
+      ? (raw.metrics as Metric[]).map((metric) => ({
+          ...metric,
+          cadence: metric.cadence === "weekly" ? "weekly" : "monthly",
+        }))
+      : base.metrics,
     metricEntries: Array.isArray(raw.metricEntries)
       ? (raw.metricEntries as MetricEntry[])
       : base.metricEntries,

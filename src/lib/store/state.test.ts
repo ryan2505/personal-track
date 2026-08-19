@@ -85,6 +85,26 @@ describe("migrate", () => {
     expect(migrate(v1, "UTC")?.reviews).toEqual([]);
   });
 
+  it("v7 — une métrique d'avant la semaine reste mensuelle", () => {
+    const v6 = {
+      ...v1,
+      version: 6,
+      metrics: [{ id: "m1", name: "Contenus", kind: "output" }],
+    };
+    const migrated = migrate(v6, "UTC");
+    expect(migrated?.metrics[0]?.cadence).toBe("monthly");
+    expect(migrated?.metrics[0]?.name).toBe("Contenus");
+  });
+
+  it("v7 — une cadence déjà posée n'est pas réécrite", () => {
+    const v7 = {
+      ...v1,
+      version: 7,
+      metrics: [{ id: "m1", name: "Contenus", kind: "output", cadence: "weekly" }],
+    };
+    expect(migrate(v7, "UTC")?.metrics[0]?.cadence).toBe("weekly");
+  });
+
   it("refuse un état venu d'une version future", () => {
     expect(migrate({ version: STATE_VERSION + 1 }, "UTC")).toBeNull();
   });

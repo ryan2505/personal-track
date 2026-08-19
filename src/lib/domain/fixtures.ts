@@ -51,6 +51,7 @@ export function makeMetric(overrides: Partial<Metric> & { id: string }): Metric 
   return {
     name: overrides.id,
     kind: "output",
+    cadence: "monthly",
     category: "business",
     group: null,
     unit: null,

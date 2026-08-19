@@ -77,7 +77,7 @@ function LayerCard({
 }
 
 function detail(reached: number, scored: number): string {
-  if (scored === 0) return "Aucune cible ce mois-ci";
+  if (scored === 0) return "Aucune cible sur la période";
   return `${reached} cible${reached > 1 ? "s" : ""} sur ${scored}`;
 }
 

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Field";
-import type { Metric, MetricKind, MetricsScore, MonthPeriod } from "@/lib/domain";
+import { cadenceOf, type Metric, type MetricKind, type MetricsScore, type Period } from "@/lib/domain";
 import { formatPeriod, METRIC_KIND_LABELS } from "@/lib/labels";
 import type { EntryPatch } from "@/lib/store/StoreProvider";
 import { formatPercent } from "@/lib/utils";
@@ -40,10 +40,10 @@ export function MetricSection({
   question: string;
   kind: MetricKind;
   score: MetricsScore;
-  period: MonthPeriod;
-  /** Métriques de cette couche pas encore au contrat du mois. */
+  period: Period;
+  /** Métriques de cette couche pas encore au contrat de la période. */
   available: Metric[];
-  /** Nombre de métriques reconductibles depuis le mois précédent. */
+  /** Nombre de métriques reconductibles depuis la période précédente. */
   previousPeriodCount: number;
   editing: boolean;
   onChangeEntry: (metricId: string, patch: EntryPatch) => void;
@@ -54,6 +54,7 @@ export function MetricSection({
   onEdit: (metric: Metric) => void;
 }) {
   const [picked, setPicked] = useState("");
+  const word = cadenceOf(period) === "weekly" ? "la semaine" : "le mois";
 
   /**
    * En lecture, les lignes sont triées par le domaine : ce qui reste à faire
@@ -93,12 +94,14 @@ export function MetricSection({
           title={`Aucune ${METRIC_KIND_LABELS[kind].toLowerCase()} sur ${formatPeriod(period)}`}
           description={
             previousPeriodCount > 0
-              ? "Reconduis le mois précédent, ou pose de nouvelles cibles."
-              : "Une cible chiffrée transforme un mois en engagement plutôt qu'en intention."
+              ? `Reconduis ${word === "la semaine" ? "la semaine précédente" : "le mois précédent"}, ou pose de nouvelles cibles.`
+              : "Une cible chiffrée transforme une période en engagement plutôt qu'en intention."
           }
           action={
             previousPeriodCount > 0 ? (
-              <Button onClick={onCarryOver}>Reconduire le mois précédent</Button>
+              <Button onClick={onCarryOver}>
+                Reconduire {word === "la semaine" ? "la semaine précédente" : "le mois précédent"}
+              </Button>
             ) : (
               <Button variant="primary" onClick={onCreate}>
                 Créer une métrique
@@ -136,7 +139,7 @@ export function MetricSection({
                 }}
                 className="h-10 w-auto min-w-40 flex-1 py-0 text-xs"
               >
-                <option value="">Ajouter au mois…</option>
+                <option value="">Ajouter à {word}…</option>
                 {available.map((metric) => (
                   <option key={metric.id} value={metric.id}>
                     {metric.name}

@@ -107,6 +107,28 @@ export function endOfIsoWeek(date: LocalDate): LocalDate {
   return addDays(startOfIsoWeek(date), 6);
 }
 
+/**
+ * Numéro de semaine ISO et son année.
+ *
+ * L'année ISO n'est pas l'année civile : une semaine appartient à l'année de
+ * son **jeudi**. Le 29 décembre 2025 est un lundi de la semaine 1 de 2026, et
+ * le 1er janvier 2021 tombe encore dans la semaine 53 de 2020. Sans cette
+ * règle, deux semaines de décembre et janvier porteraient le même identifiant
+ * et écraseraient leurs cibles l'une l'autre.
+ */
+export function isoWeek(date: LocalDate): { year: number; week: number } {
+  const monday = startOfIsoWeek(date);
+  const year = Number(addDays(monday, 3).slice(0, 4));
+  // Le 4 janvier appartient toujours à la semaine 1, quelle que soit l'année.
+  const firstMonday = startOfIsoWeek(`${year}-01-04`);
+  return { year, week: Math.round(diffDays(monday, firstMonday) / 7) + 1 };
+}
+
+/** Lundi d'une semaine ISO donnée. Inverse exact de `isoWeek`. */
+export function isoWeekStart(year: number, week: number): LocalDate {
+  return addDays(startOfIsoWeek(`${year}-01-04`), (week - 1) * 7);
+}
+
 export function startOfMonth(date: LocalDate): LocalDate {
   return `${date.slice(0, 8)}01`;
 }

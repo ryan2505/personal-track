@@ -4,6 +4,10 @@ import { makeEntry, makeMetric } from "./fixtures";
 import {
   carryOverEntries,
   indexEntries,
+  isWeekPeriod,
+  periodFor,
+  weekPeriod,
+  weeksInMonth,
   metricGap,
   metricRatio,
   metricsForPeriod,
@@ -31,6 +35,89 @@ describe("périodes", () => {
     expect(shiftPeriod("2026-01", -1)).toBe("2025-12");
     expect(shiftPeriod("2026-12", 1)).toBe("2027-01");
     expect(shiftPeriod("2026-03", -14)).toBe("2025-01");
+  });
+});
+
+describe("périodes hebdomadaires — l'année ISO n'est pas l'année civile", () => {
+  it("nomme la semaine d'une date", () => {
+    expect(weekPeriod("2026-08-17")).toBe("2026-W34"); // lundi
+    expect(weekPeriod("2026-08-19")).toBe("2026-W34"); // mercredi
+    expect(weekPeriod("2026-08-23")).toBe("2026-W34"); // dimanche
+    expect(weekPeriod("2026-08-24")).toBe("2026-W35");
+  });
+
+  it("INVARIANT — une semaine appartient à l'année de son jeudi", () => {
+    // Décembre qui bascule sur l'année suivante…
+    expect(weekPeriod("2025-12-29")).toBe("2026-W01");
+    // …et janvier qui appartient encore à l'année précédente.
+    expect(weekPeriod("2021-01-01")).toBe("2020-W53");
+    // Sans cette règle, ces deux semaines écraseraient les cibles d'une autre.
+    expect(weekPeriod("2026-12-31")).toBe("2026-W53");
+  });
+
+  it("borne la semaine du lundi au dimanche", () => {
+    expect(periodStart("2026-W34")).toBe("2026-08-17");
+    expect(periodEnd("2026-W34")).toBe("2026-08-23");
+    expect(periodStart("2026-W01")).toBe("2025-12-29");
+  });
+
+  it("aller-retour date → semaine → date", () => {
+    for (const date of ["2026-01-01", "2026-06-15", "2026-12-31", "2028-02-29"]) {
+      const period = weekPeriod(date);
+      expect(weekPeriod(periodStart(period))).toBe(period);
+    }
+  });
+
+  it("le décalage traverse une année de 53 semaines sans se tromper", () => {
+    expect(shiftPeriod("2026-W34", 1)).toBe("2026-W35");
+    expect(shiftPeriod("2026-W01", -1)).toBe("2025-W52");
+    // 2026 compte 53 semaines : un modulo fixe sauterait ici.
+    expect(shiftPeriod("2026-W53", 1)).toBe("2027-W01");
+    expect(shiftPeriod("2027-W01", -1)).toBe("2026-W53");
+  });
+
+  it("distingue les deux cadences au format seul", () => {
+    expect(isWeekPeriod("2026-W34")).toBe(true);
+    expect(isWeekPeriod("2026-08")).toBe(false);
+    expect(periodFor("weekly", "2026-08-19")).toBe("2026-W34");
+    expect(periodFor("monthly", "2026-08-19")).toBe("2026-08");
+  });
+});
+
+describe("weeksInMonth — chaque semaine dans un seul mois", () => {
+  it("rattache la semaine au mois de son lundi", () => {
+    // Août 2026 commence un samedi : la semaine qui contient le 1er a démarré
+    // en juillet et appartient donc à juillet. Restent les cinq lundis d'août.
+    expect(weeksInMonth("2026-08")).toEqual([
+      "2026-W32",
+      "2026-W33",
+      "2026-W34",
+      "2026-W35",
+      "2026-W36",
+    ]);
+    expect(weeksInMonth("2026-08").map(periodStart)).toEqual([
+      "2026-08-03",
+      "2026-08-10",
+      "2026-08-17",
+      "2026-08-24",
+      "2026-08-31",
+    ]);
+  });
+
+  it("aucune semaine comptée deux fois", () => {
+    const all = Array.from({ length: 12 }, (_, i) =>
+      weeksInMonth(`2026-${String(i + 1).padStart(2, "0")}`),
+    ).flat();
+
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("une semaine à cheval sur deux années suit son lundi, pas son numéro", () => {
+    // 2026-W01 démarre le 29 décembre 2025 : elle appartient à décembre 2025,
+    // et pas à janvier 2026 malgré son nom.
+    expect(weeksInMonth("2025-12")).toContain("2026-W01");
+    expect(weeksInMonth("2026-01")).not.toContain("2026-W01");
+    expect(weeksInMonth("2026-01")[0]).toBe("2026-W02");
   });
 });
 
@@ -238,6 +325,91 @@ describe("metricsForPeriod — le contrat du mois", () => {
 
     const rows = metricsForPeriod(metrics, indexEntries(entries), AUGUST);
     expect(rows.map((row) => row.metric.id)).toEqual(["high", "low", "done", "watched"]);
+  });
+});
+
+describe("cibles hebdomadaires vues depuis le mois", () => {
+  const weekly = makeMetric({ id: "contents", name: "Contenus publiés", cadence: "weekly" });
+  // Août 2026 : W32 à W36.
+  const fullMonth = [
+    makeEntry("contents", "2026-W32", { target: 5, actual: 3 }),
+    makeEntry("contents", "2026-W33", { target: 5, actual: 5 }),
+    makeEntry("contents", "2026-W34", { target: 5, actual: 4 }),
+    makeEntry("contents", "2026-W35", { target: 5, actual: 5 }),
+    makeEntry("contents", "2026-W36", { target: 5, actual: 3 }),
+  ];
+
+  it("somme les semaines — même métrique, même unité, somme légitime", () => {
+    const rows = metricsForPeriod([weekly], indexEntries(fullMonth), AUGUST);
+    const row = rows[0];
+
+    expect(row?.entry.actual).toBe(20);
+    expect(row?.entry.target).toBe(25);
+    expect(row?.ratio).toBe(0.8);
+    expect(row?.rollup).toEqual({ weeksEntered: 5, weeksInMonth: 5 });
+  });
+
+  it("INVARIANT — seules les semaines saisies comptent, cible comprise", () => {
+    // Deux semaines jouées sur cinq : le mois en cours ne doit pas afficher
+    // 8/25 = 32 %, ce qui présenterait un début de mois comme un échec.
+    const partial = fullMonth.slice(0, 2);
+    const row = metricsForPeriod([weekly], indexEntries(partial), AUGUST)[0];
+
+    expect(row?.entry.actual).toBe(8);
+    expect(row?.entry.target).toBe(10);
+    expect(row?.ratio).toBe(0.8);
+    expect(row?.rollup).toEqual({ weeksEntered: 2, weeksInMonth: 5 });
+  });
+
+  it("une semaine sans valeur saisie est ignorée, pas comptée zéro", () => {
+    const withHole = [
+      makeEntry("contents", "2026-W32", { target: 5, actual: 4 }),
+      makeEntry("contents", "2026-W33", { target: 5 }),
+    ];
+    const row = metricsForPeriod([weekly], indexEntries(withHole), AUGUST)[0];
+
+    expect(row?.entry.actual).toBe(4);
+    expect(row?.entry.target).toBe(5);
+    expect(row?.rollup?.weeksEntered).toBe(1);
+  });
+
+  it("aucune semaine saisie : la métrique n'apparaît pas dans le mois", () => {
+    expect(metricsForPeriod([weekly], indexEntries([]), AUGUST)).toHaveLength(0);
+  });
+
+  it("ne mélange pas les semaines d'un autre mois", () => {
+    const acrossMonths = [
+      ...fullMonth.slice(0, 1),
+      makeEntry("contents", "2026-W40", { target: 5, actual: 5 }),
+    ];
+    const row = metricsForPeriod([weekly], indexEntries(acrossMonths), AUGUST)[0];
+    expect(row?.entry.actual).toBe(3);
+  });
+
+  it("hebdomadaire et mensuel cohabitent dans le même score de couche", () => {
+    const monthly = makeMetric({ id: "revenue", name: "CA", kind: "output" });
+    const result = metricsScore(
+      [weekly, monthly],
+      indexEntries([...fullMonth, makeEntry("revenue", AUGUST, { target: 300, actual: 300 })]),
+      AUGUST,
+    );
+
+    // (0,8 + 1) / 2 — chaque métrique compte pour une, quelle que soit sa cadence.
+    expect(result.score).toBeCloseTo(0.9);
+    expect(result.tracked).toBe(2);
+  });
+
+  it("la vue semaine ne montre que les métriques hebdomadaires", () => {
+    const monthly = makeMetric({ id: "revenue", kind: "output" });
+    const rows = metricsForPeriod(
+      [weekly, monthly],
+      indexEntries([...fullMonth, makeEntry("revenue", AUGUST, { target: 300, actual: 300 })]),
+      "2026-W34",
+    );
+
+    expect(rows.map((row) => row.metric.id)).toEqual(["contents"]);
+    expect(rows[0]?.entry.actual).toBe(4);
+    expect(rows[0]?.rollup).toBeUndefined();
   });
 });
 
