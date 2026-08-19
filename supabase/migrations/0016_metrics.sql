@@ -9,12 +9,14 @@
 -- que le modèle relationnel reste la référence du domaine, et que la migration
 -- écran par écran n'ait pas à réinventer la forme des données.
 --
+-- **Rejouable** — voir l'en-tête de 0015.
+--
 -- Deux règles de non-duplication portées par le schéma lui-même :
 --   · aucune colonne ne stocke un chiffre dérivable des `habit_logs` ;
 --   · un objectif dérivé ne stocke pas sa valeur, il pointe vers sa source.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create table public.metrics (
+create table if not exists public.metrics (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
   name text not null,
@@ -42,10 +44,11 @@ create table public.metrics (
   constraint metrics_id_user_unique unique (id, user_id)
 );
 
-create index metrics_user_kind_idx
+create index if not exists metrics_user_kind_idx
   on public.metrics (user_id, kind)
   where archived_at is null;
 
+drop trigger if exists metrics_touch on public.metrics;
 create trigger metrics_touch
   before update on public.metrics
   for each row execute function public.touch_updated_at();
@@ -56,11 +59,12 @@ create trigger metrics_touch
 -- contient que les métriques pour lesquelles une entrée a été posée. Démarrer
 -- un nouveau mois, c'est choisir lesquelles on reconduit.
 
-create table public.metric_entries (
+create table if not exists public.metric_entries (
   metric_id uuid not null,
   user_id uuid not null,
-  -- Le mois, ramené à son premier jour. Une DATE et non un `text 'YYYY-MM'` :
-  -- la base sait alors ordonner, borner et indexer les périodes.
+  -- La période, ramenée à son premier jour. Une DATE et non un `text 'YYYY-MM'` :
+  -- la base sait alors ordonner, borner et indexer les périodes. La contrainte
+  -- de forme est posée en 0017, qui ouvre la cadence hebdomadaire.
   period_start date not null,
 
   -- `null` = suivi sans cible (un CTR qu'on observe) : affiché, jamais scoré.
@@ -85,8 +89,10 @@ create table public.metric_entries (
     references public.metrics (id, user_id) on delete cascade
 );
 
-create index metric_entries_user_period_idx on public.metric_entries (user_id, period_start);
+create index if not exists metric_entries_user_period_idx
+  on public.metric_entries (user_id, period_start);
 
+drop trigger if exists metric_entries_touch on public.metric_entries;
 create trigger metric_entries_touch
   before update on public.metric_entries
   for each row execute function public.touch_updated_at();
@@ -94,8 +100,10 @@ create trigger metric_entries_touch
 -- ── Objectifs alimentés par une métrique ────────────────────────────────────
 
 alter table public.goals
-  add column metric_id uuid;
+  add column if not exists metric_id uuid;
 
+alter table public.goals
+  drop constraint if exists goals_metric_fk;
 alter table public.goals
   add constraint goals_metric_fk
   foreign key (metric_id, user_id)
@@ -104,18 +112,22 @@ alter table public.goals
 -- Un objectif `metric` sans métrique n'aurait aucune source ; un objectif d'une
 -- autre source qui en désigne une afficherait deux vérités concurrentes.
 alter table public.goals
+  drop constraint if exists goals_metric_matches_source;
+alter table public.goals
   add constraint goals_metric_matches_source
   check (
     (source = 'metric' and metric_id is not null)
     or (source <> 'metric' and metric_id is null)
   );
 
-create index goals_metric_idx on public.goals (metric_id) where metric_id is not null;
+create index if not exists goals_metric_idx
+  on public.goals (metric_id)
+  where metric_id is not null;
 
 -- ── Revue : la question manquante ───────────────────────────────────────────
 
 alter table public.reviews
-  add column distractions text;
+  add column if not exists distractions text;
 
 comment on column public.reviews.distractions is
   '« Qu''est-ce qui t''a distrait ? » — ce qui a mangé du temps sans rien produire.';
@@ -127,11 +139,13 @@ comment on column public.reviews.distractions is
 alter table public.metrics enable row level security;
 alter table public.metric_entries enable row level security;
 
+drop policy if exists metrics_own on public.metrics;
 create policy metrics_own
   on public.metrics for all
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
+drop policy if exists metric_entries_own on public.metric_entries;
 create policy metric_entries_own
   on public.metric_entries for all
   using (user_id = auth.uid())

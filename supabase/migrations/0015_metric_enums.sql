@@ -5,6 +5,11 @@
 -- rencontrée en 0013 : Postgres refuse d'utiliser une valeur d'enum ajoutée
 -- dans la même transaction. Les tables qui s'en servent arrivent en 0016.
 --
+-- **Rejouable.** Ces scripts s'appliquent à la main dans l'éditeur SQL, où l'on
+-- relance volontiers un fichier pour vérifier qu'il est passé. Un `create type`
+-- nu s'y casse au deuxième essai (42710) et fait croire à une erreur alors que
+-- tout est en place. Chaque objet est donc créé sous condition.
+--
 -- Vocabulaire (CLAUDE.md §2, étendu) :
 --   HABITUDES = ce que j'ai fait     → habit_logs, déjà en base
 --   OUTPUTS   = ce que j'ai produit  → metric_kind 'output'
@@ -15,20 +20,30 @@
 -- 'habit' ici ouvrirait la porte à une saisie manuelle en double.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create type public.metric_kind as enum ('output', 'result');
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'metric_kind') then
+    create type public.metric_kind as enum ('output', 'result');
+  end if;
 
--- Plus n'est pas toujours mieux. `maintain` est suivi mais non scoré : définir
--- un « bon écart » autour d'une cible serait arbitraire (voir metricRatio).
-create type public.metric_direction as enum ('increase', 'decrease', 'maintain');
+  -- Plus n'est pas toujours mieux. `maintain` est suivi mais non scoré : définir
+  -- un « bon écart » autour d'une cible serait arbitraire (voir metricRatio).
+  if not exists (select 1 from pg_type where typname = 'metric_direction') then
+    create type public.metric_direction as enum ('increase', 'decrease', 'maintain');
+  end if;
 
--- Formatage uniquement. N'intervient dans aucun calcul.
-create type public.metric_value_type as enum (
-  'count',
-  'currency',
-  'percent',
-  'duration',
-  'decimal'
-);
+  -- Formatage uniquement. N'intervient dans aucun calcul.
+  if not exists (select 1 from pg_type where typname = 'metric_value_type') then
+    create type public.metric_value_type as enum (
+      'count',
+      'currency',
+      'percent',
+      'duration',
+      'decimal'
+    );
+  end if;
+end
+$$;
 
 -- Un objectif peut désormais être alimenté par une métrique mensuelle, comme il
 -- l'est déjà par les logs de ses habitudes liées.

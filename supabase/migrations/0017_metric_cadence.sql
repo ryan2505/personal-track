@@ -6,18 +6,24 @@
 -- de tables : même calcul de ratio, même reconduction, même gel.
 --
 -- ⚠️ Schéma cible, non branché — voir 0016.
+-- **Rejouable** — voir l'en-tête de 0015.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create type public.metric_cadence as enum ('weekly', 'monthly');
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'metric_cadence') then
+    create type public.metric_cadence as enum ('weekly', 'monthly');
+  end if;
+end
+$$;
 
 alter table public.metrics
-  add column cadence public.metric_cadence not null default 'monthly';
+  add column if not exists cadence public.metric_cadence not null default 'monthly';
 
 comment on column public.metrics.cadence is
-  'Rythme auquel la cible se repose. Immuable une fois des périodes chiffrées : '
-  'changer le rythme rendrait l''historique inintelligible.';
+  'Rythme auquel la cible se repose. Immuable une fois des périodes chiffrées : changer le rythme rendrait l''historique inintelligible.';
 
-create index metrics_user_cadence_idx
+create index if not exists metrics_user_cadence_idx
   on public.metrics (user_id, cadence)
   where archived_at is null;
 
@@ -27,13 +33,15 @@ create index metrics_user_cadence_idx
 -- le lundi ISO pour une métrique hebdomadaire. Une seule colonne, deux
 -- cadences, et la base sait toujours ordonner et borner les périodes.
 --
--- La contrainte ne peut pas consulter `metrics.cadence` depuis un CHECK de
--- table ; elle vérifie donc la forme faible — début de mois OU lundi — et la
--- cohérence avec la cadence est tenue par le déclencheur ci-dessous.
+-- Un CHECK de table ne peut pas consulter `metrics.cadence` ; il vérifie donc
+-- la forme faible — début de mois OU lundi — et la cohérence avec la cadence
+-- est tenue par le déclencheur ci-dessous.
 
 alter table public.metric_entries
-  drop constraint metric_entries_period_is_month;
+  drop constraint if exists metric_entries_period_is_month;
 
+alter table public.metric_entries
+  drop constraint if exists metric_entries_period_is_boundary;
 alter table public.metric_entries
   add constraint metric_entries_period_is_boundary
   check (
@@ -46,16 +54,16 @@ returns trigger
 language plpgsql
 as $$
 declare
-  metric_cadence public.metric_cadence;
+  wanted public.metric_cadence;
 begin
-  select cadence into metric_cadence from public.metrics where id = new.metric_id;
+  select cadence into wanted from public.metrics where id = new.metric_id;
 
-  if metric_cadence = 'weekly' and extract(isodow from new.period_start) <> 1 then
+  if wanted = 'weekly' and extract(isodow from new.period_start) <> 1 then
     raise exception 'Une métrique hebdomadaire est datée du lundi de sa semaine (reçu : %)',
       new.period_start;
   end if;
 
-  if metric_cadence = 'monthly'
+  if wanted = 'monthly'
      and new.period_start <> date_trunc('month', new.period_start)::date then
     raise exception 'Une métrique mensuelle est datée du 1er de son mois (reçu : %)',
       new.period_start;
@@ -66,9 +74,9 @@ end;
 $$;
 
 comment on function public.check_metric_entry_period is
-  'Interdit qu''une entrée soit posée sur une période étrangère à la cadence de '
-  'sa métrique — elle deviendrait invisible dans toutes les vues.';
+  'Interdit qu''une entrée soit posée sur une période étrangère à la cadence de sa métrique — elle deviendrait invisible dans toutes les vues.';
 
+drop trigger if exists metric_entries_period_matches_cadence on public.metric_entries;
 create trigger metric_entries_period_matches_cadence
   before insert or update on public.metric_entries
   for each row execute function public.check_metric_entry_period();
