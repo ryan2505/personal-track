@@ -1,7 +1,14 @@
 import { compareDates, endOfMonth, minDate, startOfMonth } from "./dates";
 import { goalProgress, resolveCurrentValue } from "./goals";
+import {
+  indexEntries,
+  metricsScore,
+  monthPeriod,
+  periodStart,
+  type MetricsScore,
+} from "./metrics";
 import { consistency, indexLogs } from "./scoring";
-import type { Goal, Habit, HabitLog, LocalDate } from "./types";
+import type { Goal, Habit, HabitLog, LocalDate, Metric, MetricEntry, MonthPeriod } from "./types";
 
 /**
  * Bilan mensuel.
@@ -9,6 +16,17 @@ import type { Goal, Habit, HabitLog, LocalDate } from "./types";
  * Répond à trois questions, dans cet ordre : où j'en suis, ce que j'ai fait au
  * total, ce qu'il manque. Le manque est nommé « déficit » et jamais présenté
  * comme un échec : c'est un écart chiffré, pas un jugement (CLAUDE.md §1).
+ *
+ * Trois couches, mesurées séparément et **jamais moyennées entre elles** :
+ *
+ *   FONDATION  ce que j'ai fait     → constance des habitudes
+ *   EXÉCUTION  ce que j'ai produit  → métriques `output`
+ *   IMPACT     ce que ça a généré   → métriques `result`
+ *
+ * Un chiffre unique les écraserait précisément là où l'information est : un
+ * mois à 91 % de fondation, 92 % d'exécution et 42 % d'impact ne dit pas la
+ * même chose qu'un mois plat à 75 %. C'est l'écart entre les couches qui
+ * localise le goulot d'étranglement.
  *
  * Toute la logique est ici et non dans l'écran, pour la même raison que le
  * reste du domaine : c'est testable, et il ne peut pas exister deux définitions
@@ -31,9 +49,15 @@ export interface GoalScoreRow {
 export interface MonthlyScorecard {
   monthStart: LocalDate;
   monthEnd: LocalDate;
+  period: MonthPeriod;
   /** Dernier jour réellement pris en compte : un mois en cours s'arrête à aujourd'hui. */
   asOf: LocalDate;
   inProgress: boolean;
+
+  /** Couche EXÉCUTION — ce que j'ai produit. */
+  execution: MetricsScore;
+  /** Couche IMPACT — ce que ça a généré. */
+  impact: MetricsScore;
 
   goals: GoalScoreRow[];
   goalsReached: number;
@@ -45,26 +69,47 @@ export interface MonthlyScorecard {
   habitsExpected: number;
   /** Occurrences manquées. */
   habitsDeficit: number;
+  /** Couche FONDATION — ce que j'ai fait. Un seul nom pour un seul nombre. */
   consistency: number | null;
 
   /** Vrai seulement si au moins un objectif était suivi et que tous sont atteints. */
   allGoalsReached: boolean;
 }
 
-export function monthlyScorecard(
-  goals: readonly Goal[],
-  habits: readonly Habit[],
-  logs: readonly HabitLog[],
-  month: LocalDate,
-  today: LocalDate,
-): MonthlyScorecard {
+/**
+ * Sept entrées : paramètre nommé plutôt que positionnel. Un appel à sept
+ * arguments dans l'ordre est une erreur d'inversion qui attend son heure, et
+ * une inversion `logs` / `entries` produirait des chiffres faux mais crédibles.
+ */
+export interface ScorecardInput {
+  goals: readonly Goal[];
+  habits: readonly Habit[];
+  logs: readonly HabitLog[];
+  metrics: readonly Metric[];
+  metricEntries: readonly MetricEntry[];
+  /** N'importe quelle date du mois analysé. */
+  month: LocalDate;
+  today: LocalDate;
+}
+
+export function monthlyScorecard({
+  goals,
+  habits,
+  logs,
+  metrics,
+  metricEntries,
+  month,
+  today,
+}: ScorecardInput): MonthlyScorecard {
   const monthStart = startOfMonth(month);
   const monthEnd = endOfMonth(month);
   // Un mois en cours ne doit pas être jugé sur des jours qui n'ont pas eu lieu.
   const asOf = minDate(monthEnd, today);
   const inProgress = compareDates(today, monthEnd) <= 0 && compareDates(today, monthStart) >= 0;
 
+  const period = monthPeriod(monthStart);
   const index = indexLogs(logs);
+  const entryIndex = indexEntries(metricEntries);
   const habitsById = new Map<string, Habit>(habits.map((habit) => [habit.id, habit]));
 
   const rows: GoalScoreRow[] = goals
@@ -76,7 +121,7 @@ export function monthlyScorecard(
         (goal.dueDate === null || compareDates(goal.dueDate, monthStart) >= 0),
     )
     .map((goal) => {
-      const achieved = resolveCurrentValue(goal, logs, habitsById, asOf);
+      const achieved = resolveCurrentValue(goal, logs, habitsById, asOf, metricEntries);
       const progress = goalProgress(goal, achieved);
       const target = progress.target;
 
@@ -104,8 +149,11 @@ export function monthlyScorecard(
   return {
     monthStart,
     monthEnd,
+    period,
     asOf,
     inProgress,
+    execution: metricsScore(metrics, entryIndex, period, "output"),
+    impact: metricsScore(metrics, entryIndex, period, "result"),
     goals: rows,
     goalsReached,
     goalsTracked: measurable.length,
@@ -115,6 +163,54 @@ export function monthlyScorecard(
     consistency: habitResult.score,
     allGoalsReached: measurable.length > 0 && goalsReached === measurable.length,
   };
+}
+
+/** Un mois réduit à ses trois couches — de quoi lire une année d'un coup d'œil. */
+export interface MonthlySummary {
+  period: MonthPeriod;
+  foundation: number | null;
+  execution: number | null;
+  impact: number | null;
+  /** Le mois n'est pas terminé : ses chiffres ne se comparent pas encore aux autres. */
+  inProgress: boolean;
+}
+
+/**
+ * La même mesure, mois après mois.
+ *
+ * Les mois entièrement à venir sont écartés plutôt que rendus à zéro : une
+ * colonne vide est honnête, une colonne à 0 % raconterait un échec qui n'a pas
+ * eu lieu. Le mois en cours, lui, reste affiché mais signalé.
+ */
+export function monthlyTrend(
+  input: Omit<ScorecardInput, "month">,
+  periods: readonly MonthPeriod[],
+): MonthlySummary[] {
+  const summaries: MonthlySummary[] = [];
+
+  for (const period of periods) {
+    const start = periodStart(period);
+    if (compareDates(start, input.today) > 0) continue;
+
+    const card = monthlyScorecard({ ...input, month: start });
+    summaries.push({
+      period,
+      foundation: card.consistency,
+      execution: card.execution.score,
+      impact: card.impact.score,
+      inProgress: card.inProgress,
+    });
+  }
+
+  return summaries;
+}
+
+/** Les douze mois d'une année, du plus ancien au plus récent. */
+export function monthsOfYear(year: number): MonthPeriod[] {
+  return Array.from(
+    { length: 12 },
+    (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`,
+  );
 }
 
 /**
@@ -129,11 +225,17 @@ export function scorecardVerdict(card: MonthlyScorecard): {
   title: string;
   detail: string;
 } {
-  if (card.goalsTracked === 0 && card.habitsExpected === 0) {
+  const nothingTracked =
+    card.goalsTracked === 0 &&
+    card.habitsExpected === 0 &&
+    card.execution.tracked === 0 &&
+    card.impact.tracked === 0;
+
+  if (nothingTracked) {
     return {
       tone: "neutral",
       title: "Rien à mesurer ce mois-ci",
-      detail: "Aucun objectif mesurable ni habitude planifiée sur cette période.",
+      detail: "Aucun objectif mesurable, habitude planifiée ni métrique sur cette période.",
     };
   }
 

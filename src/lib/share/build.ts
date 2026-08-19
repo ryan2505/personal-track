@@ -103,7 +103,13 @@ export function buildSnapshot(state: AppState, today: LocalDate): ShareSnapshot 
     built.goals = state.goals
       .filter((goal) => goal.status !== "abandoned")
       .map((goal) => {
-        const current = resolveCurrentValue(goal, state.logs, habitsById, today);
+        const current = resolveCurrentValue(
+          goal,
+          state.logs,
+          habitsById,
+          today,
+          state.metricEntries,
+        );
         const progress = goalProgress(goal, current);
         return {
           title: goal.title,

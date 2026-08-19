@@ -4,6 +4,7 @@ import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
+import { MonthlyTrend } from "@/components/metrics/MonthlyTrend";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/Progress";
@@ -103,8 +104,8 @@ export default function AnalyticsPage() {
     [state.habits],
   );
   const goalRate = useMemo(
-    () => goalCompletionRate(state.goals, state.logs, habitsById, today),
-    [state.goals, state.logs, habitsById, today],
+    () => goalCompletionRate(state.goals, state.logs, habitsById, today, state.metricEntries),
+    [state.goals, state.logs, habitsById, today, state.metricEntries],
   );
 
   const best = byHabit[0];
@@ -213,6 +214,8 @@ export default function AnalyticsPage() {
           </p>
         </div>
       </Card>
+
+      <MonthlyTrend />
 
       <Card className="mb-4">
         <CardHeader title="Par domaine de vie" />

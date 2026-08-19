@@ -11,9 +11,9 @@
 
 | | |
 |---|---|
-| Milestones | **M0, M2, M3, M4, M5, M6, M7 : faits** (17/08/2026) |
-| Reste | M1 (auth), M8 (couple), M9 (reviews), M10 (polish) |
-| Vérifications | `typecheck` ✅ · `test` ✅ 84 tests · `build` ✅ 11 routes · `dev` ✅ · `lint` ⚠️ voir ci-dessous |
+| Milestones | **M0, M2, M3, M4, M5, M6, M7 : faits** (17/08/2026) · **Bilan mensuel à trois couches** (19/08/2026) |
+| Reste | M1 (auth), M8 (couple), M9 (revue hebdo + analytics avancées), M10 (polish) |
+| Vérifications | `typecheck` ✅ · `test` ✅ 176 tests · `build` ✅ 15 routes · `dev` ✅ · `lint` ⚠️ voir ci-dessous |
 | Décisions ouvertes | §14 — codées sur les valeurs par défaut recommandées, à confirmer |
 
 **Fait** : `src/lib/domain/` complet (planning versionné, scoring, streaks avec joker,
@@ -46,6 +46,43 @@ Rien de tout ça ne remplace le système couple du §19 : pas d'identité, pas d
 d'objectifs partagés. Les pages destinataires (`/shared`, `/live/[id]`) sont volontairement
 **hors du groupe `(app)`** : le visiteur n'a pas de profil et l'`AppGate` le renverrait dans
 l'onboarding.
+
+**Bilan mensuel — trois couches** (`src/lib/domain/metrics.ts`, `scorecard.ts`, `diagnose.ts`,
+`reviews.ts`). Le bilan ne mesure pas une chose, il en mesure trois, **jamais moyennées entre
+elles** :
+
+| Couche | Répond à | Source | Calcul |
+|---|---|---|---|
+| **Fondation** | ce que j'ai fait | `habit_logs` | `consistency()` — Σ num / Σ dénom |
+| **Exécution** | ce que j'ai produit | `metric_entries` `kind = output` | moyenne pondérée de ratios |
+| **Impact** | ce que ça a généré | `metric_entries` `kind = result` | idem |
+
+⚠️ **L'exécution et l'impact n'utilisent PAS la formule de la consistance.** `consistency` somme
+des occurrences commensurables ; les métriques ne le sont pas. Sur `{20 contenus, 300 000 FCFA}`,
+un `Σ min(réalisé, cible) / Σ cible` donnerait un dénominateur de 300 020 et le chiffre d'affaires
+écraserait tout. L'agrégation est donc une moyenne pondérée de ratios individuels — la forme de
+`dailyScore`, où chaque métrique compte pour une métrique quelle que soit son unité. Un test
+verrouille ce point précis.
+
+**Une `Metric` n'est ni une habitude ni un objectif.** `MetricKind` n'a délibérément pas de valeur
+`habit` : ce qui relève des habitudes se calcule depuis les logs, et **aucun écran ne permet de
+ressaisir « Prière = 25 »**. Ce qui la distingue d'un objectif est la **récurrence** : une cible
+qui se repose chaque mois est une métrique, un engagement daté unique est un objectif. Les deux se
+relient par `Goal.source = 'metric'`, qui dérive sa valeur des entrées au lieu de la stocker.
+
+Quatre états valent `null` et jamais `0` : pas d'entrée (hors contrat du mois), pas de cible
+(métrique d'observation), pas de valeur saisie, direction `maintain`. Vider un champ écrit `null` :
+« je n'ai pas relevé » n'est pas « j'ai fait zéro ».
+
+**Le mois en cours ne se diagnostique pas** (`diagnose.ts`) : le 10 du mois, une production à 25 %
+est un mois à 30 % d'avancement, pas un retard. Les hypothèses croisées entre couches sont donc
+suspendues tant que le mois n'est pas terminé, et aucune observation n'affirme jamais une cause —
+« explication possible », jamais « tu as ». Le ton est tenu par des tests.
+
+**La revue de fin de mois** vit au bas du bilan, pas dans un écran séparé : on répond mieux à
+« qu'est-ce qui n'a pas marché » avec les chiffres sous les yeux. Une fois clôturée, elle **gèle**
+ses chiffres — relire mars avec les statistiques recalculées d'aujourd'hui n'aurait aucun sens
+rétrospectif. Rouvrir jette le gel : deux vérités pour un même mois, jamais.
 
 **Format du state versionné** : `AppState.version` + `migrate()` dans `src/lib/store/state.ts`.
 Tout changement de forme incrémente `STATE_VERSION` et **complète** l'ancien état — on ne jette
@@ -151,6 +188,11 @@ Pas : « C'est ici que je coche des cases. »
 | **Completion** | Ratio ∈ [0,1] d'une occurrence. | `completed` (booléen) |
 | **Daily score** | Moyenne pondérée des completions du jour. | Nombre d'habitudes complétées |
 | **Consistency** | Σ numérateurs / Σ dénominateurs sur une période. | Moyenne des daily scores |
+| **Metric** | Une série mesurable dont la cible se repose chaque mois. | Goal (cible unique, datée) |
+| **Output** | Ce que j'ai produit ce mois-ci. `Metric.kind = 'output'`. | Habit |
+| **Result** | Ce que mon travail a généré. `Metric.kind = 'result'`. | Output |
+| **MetricEntry** | La valeur d'une métrique pour un mois. Son existence met la métrique au contrat du mois. | Metric |
+| **Fondation / Exécution / Impact** | Les trois couches du bilan mensuel. | Un score unique |
 
 Nommer les variables et les fonctions avec ces termes exacts. `isScheduledOn`, `expectedOccurrences`, `computeCompletion`, `dailyScore`, `consistency`, `currentStreak`.
 
@@ -511,7 +553,7 @@ Pas de tests E2E en V1. Pas de tests de composants sauf logique non triviale.
 | **Notifications push** | Service workers + permissions + cron + préférences = un milestone entier. V2. |
 | **Vision board canvas libre** (drag/resize/z-index) | Coût énorme, surtout mobile. Grille de tuiles réordonnables = 90% de la valeur pour 10% du travail. |
 | **Photo evidence sur les habitudes** | Ajoute de la friction au moment le plus sensible du produit (le tap). Note + valeur suffisent. V1.1. |
-| **Monthly review** | La weekly sert 4× plus souvent. La monthly arrive naturellement fin du premier mois. V1.1. |
+| ~~**Monthly review**~~ | **Construite le 19/08/2026**, contre l'avis initial de cette section : elle est devenue le point d'arrivée du bilan à trois couches, qui n'a de sens que s'il se referme sur « qu'est-ce que je change ». La weekly, elle, reste à faire (M9). |
 | **Badges / achievements** | Streak + consistance suffisent. Le reste vire au gadget. |
 | **Analytics avancées** (corrélations, meilleures heures, prédictions) | 4 graphiques en V1. Le reste attend une vraie question, sur de vraies données. |
 | **Multi-couple / groupes / amis** | Le schéma le permet, n'implémenter que le cas à 2. |
@@ -572,6 +614,10 @@ Si tu vois ça dans le code, c'est un bug d'architecture, pas un détail :
 - Un streak qui affiche 0 le matin avant que la journée soit jouée
 - « Ryan » ou « Grace » en dur ailleurs que dans un seed de développement
 - Une modale ou un second écran entre l'utilisateur et le fait de cocher une habitude
+- Un champ de saisie qui permettrait de ressaisir à la main un chiffre déjà dans `habit_logs`
+- `Σ min(réalisé, cible) / Σ cible` sur des métriques d'unités différentes
+- Une métrique non saisie affichée comme un zéro
+- Une observation du bilan qui affirme une cause au lieu de proposer une piste
 - Du rouge sur un jour raté dans le calendrier
 - Un état vide non conçu
 

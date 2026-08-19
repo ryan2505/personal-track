@@ -8,8 +8,17 @@ import {
   startOfIsoWeek,
   startOfMonth,
 } from "./dates";
+import { monthPeriod, sumMetric } from "./metrics";
 import { isFullyCompleted } from "./scoring";
-import type { Goal, GoalScope, GoalStatus, Habit, HabitLog, LocalDate } from "./types";
+import type {
+  Goal,
+  GoalScope,
+  GoalStatus,
+  Habit,
+  HabitLog,
+  LocalDate,
+  MetricEntry,
+} from "./types";
 
 /**
  * Objectifs — CLAUDE.md §5.4.
@@ -24,17 +33,32 @@ import type { Goal, GoalScope, GoalStatus, Habit, HabitLog, LocalDate } from "./
  * - `manual`      → la saisie de l'utilisateur
  * - `habit_count` → nombre d'occurrences pleinement accomplies
  * - `habit_sum`   → somme des valeurs enregistrées
+ * - `metric`      → somme des entrées mensuelles de la métrique liée
+ *
+ * `entries` est un paramètre obligatoire et non optionnel à dessein : un appel
+ * qui l'oublierait afficherait « 0 / 300 000 » sur un objectif parfaitement
+ * tenu. Le compilateur doit refuser cet oubli.
  */
 export function resolveCurrentValue(
   goal: Goal,
   logs: readonly HabitLog[],
   habitsById: ReadonlyMap<string, Habit>,
   today: LocalDate,
+  entries: readonly MetricEntry[],
 ): number {
   if (goal.source === "manual") return goal.currentValue;
 
-  const linked = new Set(goal.habitIds);
   const windowEnd = goal.dueDate === null ? today : minDate(goal.dueDate, today);
+
+  if (goal.source === "metric") {
+    if (goal.metricId === null) return 0;
+    // Une métrique est mensuelle : un objectif qui démarre le 15 prend le mois
+    // entier. Proratiser reviendrait à inventer une répartition à l'intérieur
+    // du mois, qui n'a jamais été mesurée.
+    return sumMetric(entries, goal.metricId, monthPeriod(goal.startDate), monthPeriod(windowEnd));
+  }
+
+  const linked = new Set(goal.habitIds);
   let total = 0;
 
   for (const log of logs) {
@@ -170,13 +194,14 @@ export function goalCompletionRate(
   logs: readonly HabitLog[],
   habitsById: ReadonlyMap<string, Habit>,
   today: LocalDate,
+  entries: readonly MetricEntry[],
 ): { completed: number; total: number; ratio: number | null } {
   const considered = goals.filter((goal) => goal.status !== "abandoned");
   if (considered.length === 0) return { completed: 0, total: 0, ratio: null };
 
   let completed = 0;
   for (const goal of considered) {
-    const current = resolveCurrentValue(goal, logs, habitsById, today);
+    const current = resolveCurrentValue(goal, logs, habitsById, today, entries);
     const { status } = goalProgress(goal, current);
     if (status === "completed") completed += 1;
   }

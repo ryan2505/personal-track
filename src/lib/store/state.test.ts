@@ -62,6 +62,29 @@ describe("migrate", () => {
     expect(migrated?.shareSettings.habits).toBe(false);
   });
 
+  it("complète les métriques introduites en v5, sans toucher au reste", () => {
+    const migrated = migrate(v1, "UTC");
+    expect(migrated?.metrics).toEqual([]);
+    expect(migrated?.metricEntries).toEqual([]);
+    expect(migrated?.habits).toHaveLength(1);
+  });
+
+  it("conserve les métriques d'un état qui en a déjà", () => {
+    const v5 = {
+      ...v1,
+      version: 5,
+      metrics: [{ id: "m1", name: "Contenus" }],
+      metricEntries: [{ metricId: "m1", period: "2026-08", target: 20, actual: 15 }],
+    };
+    const migrated = migrate(v5, "UTC");
+    expect(migrated?.metrics).toHaveLength(1);
+    expect(migrated?.metricEntries).toHaveLength(1);
+  });
+
+  it("complète les revues introduites en v6", () => {
+    expect(migrate(v1, "UTC")?.reviews).toEqual([]);
+  });
+
   it("refuse un état venu d'une version future", () => {
     expect(migrate({ version: STATE_VERSION + 1 }, "UTC")).toBeNull();
   });

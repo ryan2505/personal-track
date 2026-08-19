@@ -4,8 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import {
   addDays,
+  carryOverEntries,
   compareDates,
+  emptyAnswers,
   localToday,
+  monthlyReviewWindow,
   type Goal,
   type Habit,
   type HabitCategory,
@@ -13,6 +16,12 @@ import {
   type HabitLog,
   type HabitType,
   type LocalDate,
+  type Metric,
+  type MetricEntry,
+  type MonthPeriod,
+  type Review,
+  type ReviewAnswers,
+  type ReviewSnapshot,
   type ScheduleRule,
   type VisionArea,
   type VisionItem,
@@ -38,6 +47,13 @@ export interface HabitInput {
 export interface LogPatch {
   completed?: boolean;
   value?: number | null;
+  note?: string | null;
+}
+
+/** Ce qu'on saisit sur une métrique pour un mois. Le reste est calculé. */
+export interface EntryPatch {
+  target?: number | null;
+  actual?: number | null;
   note?: string | null;
 }
 
@@ -70,6 +86,23 @@ interface StoreValue {
   addGoal: (goal: Omit<Goal, "id">) => void;
   updateGoal: (id: string, patch: Partial<Goal>) => void;
   removeGoal: (id: string) => void;
+
+  addMetric: (metric: Omit<Metric, "id" | "archivedAt">) => Metric;
+  updateMetric: (id: string, patch: Partial<Omit<Metric, "id">>) => void;
+  archiveMetric: (id: string) => void;
+  /** Met la métrique au contrat du mois, ou met sa ligne à jour. */
+  setMetricEntry: (metricId: string, period: MonthPeriod, patch: EntryPatch) => void;
+  /** Retire la métrique du contrat de ce mois-là. Les autres mois sont intacts. */
+  removeMetricEntry: (metricId: string, period: MonthPeriod) => void;
+  /** Reconduit sur `period` les métriques d'un mois précédent, cibles comprises. */
+  carryOverMetrics: (from: MonthPeriod, to: MonthPeriod, metricIds: string[]) => void;
+
+  /** Écrit une réponse de la revue du mois, en la créant au besoin. */
+  answerMonthlyReview: (period: MonthPeriod, patch: Partial<ReviewAnswers>) => void;
+  /** Clôture : les chiffres passés en argument sont gelés avec la revue. */
+  closeMonthlyReview: (period: MonthPeriod, snapshot: ReviewSnapshot) => void;
+  /** Rouvre une revue : les chiffres redeviennent vivants. */
+  reopenMonthlyReview: (period: MonthPeriod) => void;
 
   setShareSettings: (patch: Partial<ShareSettings>) => void;
   setLiveBoard: (ref: LiveBoardRef | null) => void;
@@ -514,6 +547,179 @@ export function StoreProvider({
     [update],
   );
 
+  // ── Métriques mensuelles ───────────────────────────────────────────────────
+
+  const addMetric = useCallback(
+    (input: Omit<Metric, "id" | "archivedAt">) => {
+      const metric: Metric = { ...input, id: newId(), archivedAt: null };
+      update((current) => ({ ...current, metrics: [...current.metrics, metric] }));
+      return metric;
+    },
+    [update],
+  );
+
+  /**
+   * Modifier une métrique ne touche à aucune entrée : les mois passés gardent
+   * les cibles sur lesquelles ils ont été jugés. Changer la direction d'une
+   * métrique rescore en revanche tout son historique — c'est assumé, une
+   * direction est une correction de définition, pas un changement de règle du
+   * jeu comme l'est un planning d'habitude.
+   */
+  const updateMetric = useCallback(
+    (id: string, patch: Partial<Omit<Metric, "id">>) => {
+      update((current) => ({
+        ...current,
+        metrics: current.metrics.map((metric) =>
+          metric.id === id ? { ...metric, ...patch } : metric,
+        ),
+      }));
+    },
+    [update],
+  );
+
+  /** Archiver = borner. Jamais de suppression : les mois tenus restent tenus. */
+  const archiveMetric = useCallback(
+    (id: string) => {
+      update((current) => ({
+        ...current,
+        metrics: current.metrics.map((metric) =>
+          metric.id === id ? { ...metric, archivedAt: today } : metric,
+        ),
+      }));
+    },
+    [today, update],
+  );
+
+  const setMetricEntry = useCallback(
+    (metricId: string, period: MonthPeriod, patch: EntryPatch) => {
+      update((current) => {
+        const existing = current.metricEntries.find(
+          (entry) => entry.metricId === metricId && entry.period === period,
+        );
+        const next: MetricEntry = {
+          metricId,
+          period,
+          target: patch.target !== undefined ? patch.target : (existing?.target ?? null),
+          actual: patch.actual !== undefined ? patch.actual : (existing?.actual ?? null),
+          note: patch.note !== undefined ? patch.note : (existing?.note ?? null),
+        };
+
+        return {
+          ...current,
+          metricEntries:
+            existing === undefined
+              ? [...current.metricEntries, next]
+              : current.metricEntries.map((entry) => (entry === existing ? next : entry)),
+        };
+      });
+    },
+    [update],
+  );
+
+  /**
+   * Seule suppression tolérée du produit, et elle est bornée : retirer une
+   * métrique du contrat d'un mois. Ce n'est pas de l'historique, c'est une
+   * ligne qu'on n'aurait pas dû ajouter à ce mois-là.
+   */
+  const removeMetricEntry = useCallback(
+    (metricId: string, period: MonthPeriod) => {
+      update((current) => ({
+        ...current,
+        metricEntries: current.metricEntries.filter(
+          (entry) => !(entry.metricId === metricId && entry.period === period),
+        ),
+      }));
+    },
+    [update],
+  );
+
+  const carryOverMetrics = useCallback(
+    (from: MonthPeriod, to: MonthPeriod, metricIds: string[]) => {
+      update((current) => {
+        // Une métrique archivée ne se reconduit pas : on l'a arrêtée.
+        const eligible = metricIds.filter((id) =>
+          current.metrics.some((metric) => metric.id === id && metric.archivedAt === null),
+        );
+        const added = carryOverEntries(current.metricEntries, from, to, eligible);
+        if (added.length === 0) return current;
+
+        return { ...current, metricEntries: [...current.metricEntries, ...added] };
+      });
+    },
+    [update],
+  );
+
+  // ── Revues ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Une revue par mois, identifiée par son premier jour. La fabrique est
+   * partagée par les trois mutations : deux endroits qui créeraient une revue
+   * finiraient par en créer deux pour le même mois.
+   */
+  const upsertReview = useCallback(
+    (current: AppState, period: MonthPeriod, mutate: (review: Review) => Review): AppState => {
+      const window = monthlyReviewWindow(period);
+      const existing = current.reviews.find(
+        (review) => review.kind === "monthly" && review.periodStart === window.periodStart,
+      );
+
+      const base: Review = existing ?? {
+        id: newId(),
+        kind: "monthly",
+        periodStart: window.periodStart,
+        periodEnd: window.periodEnd,
+        metrics: null,
+        completedAt: null,
+        ...emptyAnswers(),
+      };
+
+      const next = mutate(base);
+      return {
+        ...current,
+        reviews:
+          existing === undefined
+            ? [...current.reviews, next]
+            : current.reviews.map((review) => (review === existing ? next : review)),
+      };
+    },
+    [],
+  );
+
+  const answerMonthlyReview = useCallback(
+    (period: MonthPeriod, patch: Partial<ReviewAnswers>) => {
+      update((current) => upsertReview(current, period, (review) => ({ ...review, ...patch })));
+    },
+    [update, upsertReview],
+  );
+
+  const closeMonthlyReview = useCallback(
+    (period: MonthPeriod, snapshot: ReviewSnapshot) => {
+      update((current) =>
+        upsertReview(current, period, (review) => ({
+          ...review,
+          metrics: snapshot,
+          completedAt: new Date().toISOString(),
+        })),
+      );
+    },
+    [update, upsertReview],
+  );
+
+  /** Rouvrir jette le gel : garder des chiffres figés sur une revue vivante
+   *  ferait cohabiter deux vérités pour le même mois. */
+  const reopenMonthlyReview = useCallback(
+    (period: MonthPeriod) => {
+      update((current) =>
+        upsertReview(current, period, (review) => ({
+          ...review,
+          metrics: null,
+          completedAt: null,
+        })),
+      );
+    },
+    [update, upsertReview],
+  );
+
   const setShareSettings = useCallback(
     (patch: Partial<ShareSettings>) => {
       update((current) => ({
@@ -561,6 +767,15 @@ export function StoreProvider({
       addGoal,
       updateGoal,
       removeGoal,
+      addMetric,
+      updateMetric,
+      archiveMetric,
+      setMetricEntry,
+      removeMetricEntry,
+      carryOverMetrics,
+      answerMonthlyReview,
+      closeMonthlyReview,
+      reopenMonthlyReview,
       setShareSettings,
       setLiveBoard,
       resetAll,
@@ -588,6 +803,15 @@ export function StoreProvider({
       addGoal,
       updateGoal,
       removeGoal,
+      addMetric,
+      updateMetric,
+      archiveMetric,
+      setMetricEntry,
+      removeMetricEntry,
+      carryOverMetrics,
+      answerMonthlyReview,
+      closeMonthlyReview,
+      reopenMonthlyReview,
       setShareSettings,
       setLiveBoard,
       resetAll,

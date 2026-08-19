@@ -1,4 +1,13 @@
-import type { Goal, Habit, HabitLog, LocalDate, ScheduleRule } from "./types";
+import type {
+  Goal,
+  Habit,
+  HabitLog,
+  LocalDate,
+  Metric,
+  MetricEntry,
+  MonthPeriod,
+  ScheduleRule,
+} from "./types";
 
 /** Fabriques de test. Aucun usage applicatif. */
 
@@ -38,6 +47,29 @@ export function makeLog(
   return { habitId, localDate, value: null, completed: true, ...overrides };
 }
 
+export function makeMetric(overrides: Partial<Metric> & { id: string }): Metric {
+  return {
+    name: overrides.id,
+    kind: "output",
+    category: "business",
+    group: null,
+    unit: null,
+    valueType: "count",
+    direction: "increase",
+    weight: 1,
+    archivedAt: null,
+    ...overrides,
+  };
+}
+
+export function makeEntry(
+  metricId: string,
+  period: MonthPeriod,
+  overrides: Partial<MetricEntry> = {},
+): MetricEntry {
+  return { metricId, period, target: null, actual: null, note: null, ...overrides };
+}
+
 export function makeGoal(overrides: Partial<Goal> & { id: string }): Goal {
   return {
     title: overrides.id,
@@ -51,6 +83,7 @@ export function makeGoal(overrides: Partial<Goal> & { id: string }): Goal {
     dueDate: "2026-08-31",
     status: "not_started",
     habitIds: [],
+    metricId: null,
     ...overrides,
   };
 }

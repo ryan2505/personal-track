@@ -63,7 +63,13 @@ export default function GoalsPage() {
       ) : (
         <div className="space-y-3">
           {goals.map((goal) => {
-            const current = resolveCurrentValue(goal, state.logs, habitsById, today);
+            const current = resolveCurrentValue(
+              goal,
+              state.logs,
+              habitsById,
+              today,
+              state.metricEntries,
+            );
             const progress = goalProgress(goal, current);
             const pace = goalPace(goal, progress.ratio, today);
             const linked = goal.habitIds

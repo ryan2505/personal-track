@@ -4,38 +4,136 @@ import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
-import { Card, CardHeader } from "@/components/ui/Card";
+import { GoalScoreList } from "@/components/metrics/GoalScoreList";
+import { LayerScores } from "@/components/metrics/LayerScores";
+import { MetricForm } from "@/components/metrics/MetricForm";
+import { MetricSection } from "@/components/metrics/MetricSection";
+import { MonthlyReview } from "@/components/metrics/MonthlyReview";
+import { Observations } from "@/components/metrics/Observations";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { ProgressBar, ScoreRing } from "@/components/ui/Progress";
 import {
   addDays,
+  diagnoseMonth,
   endOfMonth,
+  findMonthlyReview,
+  freezeScorecard,
+  indexEntries,
+  metricsForPeriod,
   monthlyScorecard,
   scorecardVerdict,
+  shiftPeriod,
   startOfMonth,
   type LocalDate,
+  type Metric,
+  type MetricKind,
 } from "@/lib/domain";
-import { CATEGORY_LABELS, formatLongDate, formatMonth, GOAL_SCOPE_SHORT } from "@/lib/labels";
+import {
+  formatLongDate,
+  formatMonth,
+  formatPeriod,
+  LAYER_LABELS,
+  LAYER_QUESTIONS,
+} from "@/lib/labels";
 import { useStore } from "@/lib/store/StoreProvider";
-import { cn, formatPercent } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 export default function ScorecardPage() {
-  const { state, today } = useStore();
+  const store = useStore();
+  const { state, today } = store;
   const [month, setMonth] = useState<LocalDate>(today);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<{ metric: Metric | null; kind: MetricKind } | null>(null);
 
   const card = useMemo(
-    () => monthlyScorecard(state.goals, state.habits, state.logs, month, today),
-    [state.goals, state.habits, state.logs, month, today],
+    () =>
+      monthlyScorecard({
+        goals: state.goals,
+        habits: state.habits,
+        logs: state.logs,
+        metrics: state.metrics,
+        metricEntries: state.metricEntries,
+        month,
+        today,
+      }),
+    [state.goals, state.habits, state.logs, state.metrics, state.metricEntries, month, today],
   );
+
+  const previous = useMemo(() => shiftPeriod(card.period, -1), [card.period]);
+  const next = useMemo(() => shiftPeriod(card.period, 1), [card.period]);
+  const review = findMonthlyReview(state.reviews, card.period);
+
+  /** Ce que « préparer le mois suivant » reconduirait : tout ce qui est au contrat. */
+  const carryToNext = useMemo(() => {
+    const index = indexEntries(state.metricEntries);
+    const already = new Set(
+      metricsForPeriod(state.metrics, index, next).map((row) => row.metric.id),
+    );
+    return metricsForPeriod(state.metrics, index, card.period)
+      .map((row) => row.metric.id)
+      .filter((id) => !already.has(id));
+  }, [state.metrics, state.metricEntries, card.period, next]);
+
+  /** Ce qui existe mais n'est pas au contrat du mois, et ce qui est reconductible. */
+  const offers = useMemo(() => {
+    const index = indexEntries(state.metricEntries);
+    const inMonth = new Set(
+      metricsForPeriod(state.metrics, index, card.period).map((row) => row.metric.id),
+    );
+    const carryable = new Set(
+      metricsForPeriod(state.metrics, index, previous).map((row) => row.metric.id),
+    );
+
+    return (kind: MetricKind) => {
+      const own = state.metrics.filter(
+        (metric) => metric.kind === kind && metric.archivedAt === null,
+      );
+      return {
+        available: own.filter((metric) => !inMonth.has(metric.id)),
+        carryable: own.filter((metric) => carryable.has(metric.id) && !inMonth.has(metric.id)),
+      };
+    };
+  }, [state.metrics, state.metricEntries, card.period, previous]);
 
   const verdict = scorecardVerdict(card);
   const isFuture = card.monthStart > today;
+
+  const section = (kind: MetricKind) => {
+    const { available, carryable } = offers(kind);
+    return (
+      <MetricSection
+        title={kind === "output" ? LAYER_LABELS.execution : LAYER_LABELS.impact}
+        question={kind === "output" ? LAYER_QUESTIONS.execution : LAYER_QUESTIONS.impact}
+        kind={kind}
+        score={kind === "output" ? card.execution : card.impact}
+        period={card.period}
+        available={available}
+        previousPeriodCount={carryable.length}
+        editing={editing}
+        onChangeEntry={(metricId, patch) => store.setMetricEntry(metricId, card.period, patch)}
+        onRemoveEntry={(metricId) => store.removeMetricEntry(metricId, card.period)}
+        onAddToMonth={(metricId) =>
+          store.setMetricEntry(metricId, card.period, { target: null, actual: null })
+        }
+        onCarryOver={() =>
+          store.carryOverMetrics(
+            previous,
+            card.period,
+            carryable.map((metric) => metric.id),
+          )
+        }
+        onCreate={() => setForm({ metric: null, kind })}
+        onEdit={(metric) => setForm({ metric, kind })}
+      />
+    );
+  };
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
       <PageHeader
         title="Bilan mensuel"
-        subtitle="Où tu en es, ce que tu as fait au total, ce qu'il manque."
+        subtitle="Ce que tu as fait, ce que tu as produit, ce que ça a généré."
         action={
           <div className="flex gap-1">
             <button
@@ -56,12 +154,19 @@ export default function ScorecardPage() {
         }
       />
 
-      <p className="text-faint mb-5 text-xs capitalize">
-        {formatMonth(card.monthStart)}
-        {card.inProgress && (
-          <span className="normal-case"> · en cours, arrêté au {formatLongDate(card.asOf)}</span>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <p className="text-faint text-xs capitalize">
+          {formatMonth(card.monthStart)}
+          {card.inProgress && (
+            <span className="normal-case"> · en cours, arrêté au {formatLongDate(card.asOf)}</span>
+          )}
+        </p>
+        {!isFuture && (
+          <Button onClick={() => setEditing((value) => !value)} className="h-9 text-xs">
+            {editing ? "Terminer la saisie" : "Saisir les chiffres"}
+          </Button>
         )}
-      </p>
+      </div>
 
       {isFuture ? (
         <Card>
@@ -72,12 +177,8 @@ export default function ScorecardPage() {
         </Card>
       ) : (
         <>
-          {/* Le verdict d'abord : c'est ce qu'on vient chercher. */}
           <Card
-            className={cn(
-              "mb-5 p-5",
-              verdict.tone === "celebrate" && "border-success/40 bg-success/5",
-            )}
+            className={cn("mb-5 p-5", verdict.tone === "celebrate" && "border-success/40 bg-success/5")}
           >
             <div className="flex items-start gap-4">
               {verdict.tone === "celebrate" && (
@@ -99,103 +200,56 @@ export default function ScorecardPage() {
             </div>
           </Card>
 
-          <div className="mb-5 grid gap-3 sm:grid-cols-3">
-            <Card className="flex items-center gap-4 p-4">
-              <ScoreRing
-                ratio={card.consistency}
-                size={56}
-                label={formatPercent(card.consistency)}
-              />
-              <div>
-                <p className="text-faint text-xs">Constance</p>
-                <p className="tabular text-sm">
-                  {round(card.habitsAchieved)} / {round(card.habitsExpected)}
-                </p>
-              </div>
-            </Card>
+          <LayerScores card={card} />
 
-            <Card className="p-4">
-              <p className="text-faint text-xs">Objectifs atteints</p>
-              <p className="tabular mt-1 text-2xl font-medium">
-                {card.goalsReached}
-                <span className="text-faint text-base"> / {card.goalsTracked}</span>
-              </p>
-            </Card>
+          {section("output")}
+          {section("result")}
 
-            <Card className="p-4">
-              <p className="text-faint text-xs">Occurrences manquées</p>
-              <p className="tabular mt-1 text-2xl font-medium">{round(card.habitsDeficit)}</p>
-              <p className="text-faint mt-1 text-xs">sur {round(card.habitsExpected)} attendues</p>
-            </Card>
-          </div>
+          <Observations observations={diagnoseMonth(card)} />
 
-          <Card>
-            <CardHeader title="Objectifs, un par un" />
-            {card.goals.length === 0 ? (
-              <EmptyState
-                title="Aucun objectif sur ce mois"
-                description="Un bilan sans objectif ne mesure que la constance. Fixe une cible chiffrée pour le mois prochain."
-              />
-            ) : (
-              <div className="divide-border divide-y">
-                {card.goals.map((row) => (
-                  <div key={row.goal.id} className="px-4 py-4 sm:px-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-2 text-sm">
-                          {row.reached && <Check className="text-success size-4 shrink-0" />}
-                          <span className={cn("truncate", row.reached && "text-muted")}>
-                            {row.goal.title}
-                          </span>
-                        </p>
-                        <p className="text-faint mt-0.5 text-xs">
-                          {CATEGORY_LABELS[row.goal.category]} ·{" "}
-                          {GOAL_SCOPE_SHORT[row.goal.scope]}
-                          {row.spansBeyondMonth && " · progression globale"}
-                        </p>
-                      </div>
-                      <span className="tabular shrink-0 text-sm">{formatPercent(row.ratio)}</span>
-                    </div>
+          <GoalScoreList rows={card.goals} />
 
-                    <ProgressBar
-                      ratio={row.ratio}
-                      className="mt-3"
-                      tone={row.reached ? "success" : "accent"}
-                    />
-
-                    <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
-                      <span className="text-muted tabular">
-                        Réalisé : {round(row.achieved)}
-                        {row.target !== null && ` / ${round(row.target)}`}
-                        {row.goal.unit !== null && ` ${row.goal.unit}`}
-                      </span>
-                      {row.deficit !== null && (
-                        <span className={cn("tabular", row.deficit === 0 ? "text-success" : "text-warn")}>
-                          {row.deficit === 0
-                            ? "Cible atteinte"
-                            : `Déficit : ${round(row.deficit)}${row.goal.unit === null ? "" : ` ${row.goal.unit}`}`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+          <MonthlyReview
+            review={review}
+            card={card}
+            onAnswer={(patch) => store.answerMonthlyReview(card.period, patch)}
+            onClose={() => store.closeMonthlyReview(card.period, freezeScorecard(card))}
+            onReopen={() => store.reopenMonthlyReview(card.period)}
+            onPrepareNext={() => store.carryOverMetrics(card.period, next, carryToNext)}
+            nextMonthLabel={formatPeriod(next)}
+            canPrepareNext={carryToNext.length > 0}
+          />
 
           {card.inProgress && (
             <p className="text-faint mt-4 text-xs leading-relaxed">
-              Le mois n&apos;est pas terminé : seules les journées écoulées sont comptées. Les
-              jours à venir ne pèsent pas encore contre toi.
+              Le mois n&apos;est pas terminé : seules les journées écoulées sont comptées. Les jours
+              à venir ne pèsent pas encore contre toi.
             </p>
           )}
         </>
       )}
+
+      {form !== null && (
+        <MetricForm
+          key={form.metric?.id ?? "new"}
+          metric={form.metric}
+          open
+          onClose={() => setForm(null)}
+          onSubmit={(input) => {
+            if (form.metric === null) {
+              const created = store.addMetric({ ...input, kind: form.kind });
+              // Une métrique créée depuis un mois y entre aussitôt : sinon elle
+              // disparaîtrait de l'écran d'où on vient de la créer.
+              store.setMetricEntry(created.id, card.period, { target: null, actual: null });
+            } else {
+              store.updateMetric(form.metric.id, input);
+            }
+          }}
+          onArchive={() => {
+            if (form.metric !== null) store.archiveMetric(form.metric.id);
+          }}
+        />
+      )}
     </main>
   );
-}
-
-/** Les cibles dérivées peuvent tomber sur des décimales : on n'affiche pas « 17.000000001 ». */
-function round(value: number): number {
-  return Math.round(value * 10) / 10;
 }

@@ -86,6 +86,9 @@ export function GoalForm({
       dueDate: dueDate === "" ? null : dueDate,
       status: goal?.status ?? "not_started",
       habitIds: derived ? habitIds : [],
+      // La liaison à une métrique s'édite depuis l'écran des métriques (S4) :
+      // ce formulaire ne doit pas pouvoir l'effacer par omission.
+      metricId: goal?.metricId ?? null,
     });
     onClose();
   };

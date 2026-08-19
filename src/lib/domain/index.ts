@@ -10,4 +10,7 @@ export * from "./scheduling";
 export * from "./scoring";
 export * from "./streaks";
 export * from "./goals";
+export * from "./metrics";
 export * from "./scorecard";
+export * from "./diagnose";
+export * from "./reviews";

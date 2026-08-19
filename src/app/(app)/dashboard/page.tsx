@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
+import { ScorecardSummary } from "@/components/metrics/ScorecardSummary";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProgressBar, ScoreRing } from "@/components/ui/Progress";
@@ -127,6 +128,8 @@ export default function DashboardPage() {
         </div>
       </Card>
 
+      <ScorecardSummary />
+
       <Card>
         <CardHeader
           title="Objectifs"
@@ -144,7 +147,13 @@ export default function DashboardPage() {
         ) : (
           <div className="divide-border divide-y">
             {goals.map((goal) => {
-              const current = resolveCurrentValue(goal, state.logs, habitsById, today);
+              const current = resolveCurrentValue(
+                goal,
+                state.logs,
+                habitsById,
+                today,
+                state.metricEntries,
+              );
               const progress = goalProgress(goal, current);
               return (
                 <div key={goal.id} className="px-4 py-3 sm:px-5">

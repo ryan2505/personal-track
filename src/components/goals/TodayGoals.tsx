@@ -62,7 +62,13 @@ export function TodayGoals({ date }: { date: LocalDate }) {
           isFullyCompleted(habit, index.get(`${habit.id}|${date}`)),
         ).length;
 
-        const current = resolveCurrentValue(goal, state.logs, habitsById, date);
+        const current = resolveCurrentValue(
+          goal,
+          state.logs,
+          habitsById,
+          date,
+          state.metricEntries,
+        );
         const progress = goalProgress(goal, current);
 
         return {

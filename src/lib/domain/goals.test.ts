@@ -42,7 +42,7 @@ describe("resolveCurrentValue — le pari central du produit", () => {
       makeLog("workout", "2026-08-07", { completed: false }),
     ];
 
-    expect(resolveCurrentValue(goal, logs, habitsById, "2026-08-17")).toBe(2);
+    expect(resolveCurrentValue(goal, logs, habitsById, "2026-08-17", [])).toBe(2);
   });
 
   it("habit_sum : somme les valeurs enregistrées", () => {
@@ -57,7 +57,7 @@ describe("resolveCurrentValue — le pari central du produit", () => {
       makeLog("prospect", "2026-08-04", { value: 12 }),
     ];
 
-    expect(resolveCurrentValue(goal, logs, habitsById, "2026-08-17")).toBe(20);
+    expect(resolveCurrentValue(goal, logs, habitsById, "2026-08-17", [])).toBe(20);
   });
 
   it("ignore les logs hors fenêtre de l'objectif", () => {
@@ -70,12 +70,12 @@ describe("resolveCurrentValue — le pari central du produit", () => {
     });
     const logs = [makeLog("workout", "2026-07-31"), makeLog("workout", "2026-08-02")];
 
-    expect(resolveCurrentValue(goal, logs, habitsById, "2026-08-17")).toBe(1);
+    expect(resolveCurrentValue(goal, logs, habitsById, "2026-08-17", [])).toBe(1);
   });
 
   it("manual : n'est jamais dérivé", () => {
     const goal = makeGoal({ id: "revenue", currentValue: 400_000, targetValue: 1_000_000 });
-    expect(resolveCurrentValue(goal, [makeLog("workout", "2026-08-02")], habitsById, "2026-08-17")).toBe(
+    expect(resolveCurrentValue(goal, [makeLog("workout", "2026-08-02")], habitsById, "2026-08-17", [])).toBe(
       400_000,
     );
   });
@@ -165,12 +165,12 @@ describe("goalCompletionRate", () => {
       makeGoal({ id: "dropped", targetValue: 5, currentValue: 0, status: "abandoned" }),
     ];
 
-    const rate = goalCompletionRate(goals, [], habitsById, "2026-08-17");
+    const rate = goalCompletionRate(goals, [], habitsById, "2026-08-17", []);
     expect(rate).toEqual({ completed: 1, total: 2, ratio: 0.5 });
   });
 
   it("null sans aucun objectif exploitable", () => {
-    expect(goalCompletionRate([], [], habitsById, "2026-08-17").ratio).toBeNull();
+    expect(goalCompletionRate([], [], habitsById, "2026-08-17", []).ratio).toBeNull();
   });
 });
 

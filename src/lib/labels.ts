@@ -3,6 +3,12 @@ import type {
   Habit,
   HabitCategory,
   HabitType,
+  Metric,
+  MetricDirection,
+  MetricKind,
+  MetricValueType,
+  MonthPeriod,
+  ReviewField,
   ScheduleKind,
   ScheduleRule,
 } from "@/lib/domain";
@@ -123,6 +129,140 @@ export function describeRule(rule: ScheduleRule): string {
 /** Variante tolérante, pour les cas où aucune version de planning n'est ouverte. */
 export function describeRuleFallback(rule: ScheduleRule | undefined): string {
   return rule === undefined ? "—" : describeRule(rule);
+}
+
+// ── Métriques mensuelles ─────────────────────────────────────────────────────
+
+export const METRIC_KINDS: MetricKind[] = ["output", "result"];
+
+export const METRIC_KIND_LABELS: Record<MetricKind, string> = {
+  output: "Production",
+  result: "Résultat",
+};
+
+/** L'intitulé de la couche, tel qu'il apparaît en tête du bilan. */
+export const LAYER_LABELS = {
+  foundation: "Fondation",
+  execution: "Exécution",
+  impact: "Impact",
+} as const;
+
+/** Ce que chaque couche répond, en une ligne. */
+export const LAYER_QUESTIONS = {
+  foundation: "Ce que j'ai fait",
+  execution: "Ce que j'ai produit",
+  impact: "Ce que ça a généré",
+} as const;
+
+export const METRIC_DIRECTIONS: MetricDirection[] = ["increase", "decrease", "maintain"];
+
+export const METRIC_DIRECTION_LABELS: Record<MetricDirection, string> = {
+  increase: "Atteindre au moins",
+  decrease: "Rester en dessous",
+  maintain: "Se maintenir autour",
+};
+
+export const METRIC_DIRECTION_HINTS: Record<MetricDirection, string> = {
+  increase: "Plus est mieux — chiffre d'affaires, abonnés, contenus publiés.",
+  decrease: "Moins est mieux — dépenses, temps d'écran.",
+  maintain: "Suivie sans être notée : définir un « bon écart » serait arbitraire.",
+};
+
+export const METRIC_VALUE_TYPES: MetricValueType[] = [
+  "count",
+  "currency",
+  "percent",
+  "duration",
+  "decimal",
+];
+
+export const VALUE_TYPE_LABELS: Record<MetricValueType, string> = {
+  count: "Nombre entier",
+  currency: "Montant",
+  percent: "Pourcentage",
+  duration: "Durée",
+  decimal: "Nombre décimal",
+};
+
+const INTEGER_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+const DECIMAL_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
+
+/**
+ * Une valeur de métrique, dans son unité. `null` reste « — » : une valeur non
+ * saisie n'est pas un zéro, et l'écran ne doit pas la maquiller en zéro.
+ */
+export function formatMetricValue(metric: Metric, value: number | null): string {
+  if (value === null) return "—";
+
+  const unit = metric.unit === null || metric.unit === "" ? "" : ` ${metric.unit}`;
+
+  switch (metric.valueType) {
+    case "currency":
+      return `${INTEGER_FORMAT.format(value)}${unit}`;
+    case "percent":
+      return `${DECIMAL_FORMAT.format(value)} %`;
+    case "count":
+      return `${INTEGER_FORMAT.format(value)}${unit}`;
+    case "duration":
+    case "decimal":
+      return `${DECIMAL_FORMAT.format(value)}${unit}`;
+  }
+}
+
+// ── Revue mensuelle ──────────────────────────────────────────────────────────
+
+/**
+ * Les neuf questions. Ouvertes, non suggestives : « qu'est-ce qui t'a distrait »
+ * appelle une observation, « pourquoi as-tu échoué » appelle une justification.
+ */
+export const REVIEW_LABELS: Record<ReviewField, { question: string; placeholder: string }> = {
+  wentWell: {
+    question: "Qu'est-ce qui a marché ?",
+    placeholder: "Ce que tu referais à l'identique.",
+  },
+  wentPoorly: {
+    question: "Qu'est-ce qui n'a pas marché ?",
+    placeholder: "Sans chercher de coupable — juste ce qui a coincé.",
+  },
+  distractions: {
+    question: "Qu'est-ce qui t'a distrait ?",
+    placeholder: "Ce qui a mangé du temps sans rien produire.",
+  },
+  proudOf: {
+    question: "De quoi es-tu fier ?",
+    placeholder: "Même petit. Surtout si personne ne l'a vu.",
+  },
+  learned: {
+    question: "La plus grande leçon",
+    placeholder: "Une seule phrase, celle que tu veux relire dans un an.",
+  },
+  stopDoing: {
+    question: "Qu'est-ce que tu arrêtes ?",
+    placeholder: "Arrêter est une décision, pas un renoncement.",
+  },
+  startDoing: {
+    question: "Qu'est-ce que tu commences ?",
+    placeholder: "Une chose. Deux, c'est déjà une liste d'intentions.",
+  },
+  continueDoing: {
+    question: "Qu'est-ce que tu continues ?",
+    placeholder: "Ce qui est réglé et qu'il ne faut surtout pas rouvrir.",
+  },
+  mainFocus: {
+    question: "Priorité n°1 du mois prochain",
+    placeholder: "Si tu ne devais réussir qu'une chose.",
+  },
+};
+
+const PERIOD_FORMAT = new Intl.DateTimeFormat("fr-FR", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** « août 2026 » à partir d'un `2026-08`. */
+export function formatPeriod(period: MonthPeriod): string {
+  return PERIOD_FORMAT.format(new Date(`${period}-01T00:00:00Z`));
 }
 
 /** « 45 / 60 min ». Le formatage vit ici, jamais dans un composant. */

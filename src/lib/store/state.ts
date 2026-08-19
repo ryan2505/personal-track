@@ -1,4 +1,13 @@
-import type { Goal, Habit, HabitLog, VisionArea, VisionItem } from "@/lib/domain";
+import type {
+  Goal,
+  Habit,
+  HabitLog,
+  Metric,
+  MetricEntry,
+  Review,
+  VisionArea,
+  VisionItem,
+} from "@/lib/domain";
 import type { LiveBoardRef } from "@/lib/share/live";
 import { DEFAULT_SHARE_SETTINGS, type ShareSettings } from "@/lib/share/snapshot";
 
@@ -29,13 +38,19 @@ export interface AppState {
   habits: Habit[];
   goals: Goal[];
   logs: HabitLog[];
+  /** Définitions des métriques mensuelles — outputs et results. */
+  metrics: Metric[];
+  /** Une valeur par (métrique, mois). Le contrat mensuel. */
+  metricEntries: MetricEntry[];
+  /** Revues de fin de période. Une par (kind, periodStart). */
+  reviews: Review[];
   /** Ce que l'utilisateur accepte d'exposer dans un instantané partagé. */
   shareSettings: ShareSettings;
   /** Lien vivant publié, ou `null`. Contient le jeton : ne jamais l'inclure dans un payload. */
   liveBoard: LiveBoardRef | null;
 }
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 6;
 
 export function emptyState(timezone: string): AppState {
   return {
@@ -52,6 +67,9 @@ export function emptyState(timezone: string): AppState {
     habits: [],
     goals: [],
     logs: [],
+    metrics: [],
+    metricEntries: [],
+    reviews: [],
     shareSettings: { ...DEFAULT_SHARE_SETTINGS },
     liveBoard: null,
   };
@@ -88,6 +106,14 @@ export function migrate(raw: Record<string, unknown>, timezone: string): AppStat
     habits: Array.isArray(raw.habits) ? (raw.habits as Habit[]) : base.habits,
     goals: Array.isArray(raw.goals) ? (raw.goals as Goal[]) : base.goals,
     logs: Array.isArray(raw.logs) ? (raw.logs as HabitLog[]) : base.logs,
+    // Introduits en v5. Un état antérieur repart simplement sans métrique : le
+    // bilan mensuel retombe alors sur sa seule couche « fondation ».
+    metrics: Array.isArray(raw.metrics) ? (raw.metrics as Metric[]) : base.metrics,
+    metricEntries: Array.isArray(raw.metricEntries)
+      ? (raw.metricEntries as MetricEntry[])
+      : base.metricEntries,
+    // Introduites en v6.
+    reviews: Array.isArray(raw.reviews) ? (raw.reviews as Review[]) : base.reviews,
     // Un réglage de partage inconnu retombe sur le défaut fermé, jamais sur ouvert.
     shareSettings:
       typeof raw.shareSettings === "object" && raw.shareSettings !== null

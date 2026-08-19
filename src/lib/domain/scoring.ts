@@ -6,7 +6,7 @@ import {
   startOfMonth,
 } from "./dates";
 import { expectedOn, isQuota, quotaExpectations, ruleForDate } from "./scheduling";
-import type { Habit, HabitCategory, HabitLog, LocalDate } from "./types";
+import type { Habit, HabitCategory, HabitDirection, HabitLog, LocalDate } from "./types";
 
 /**
  * Scoring — CLAUDE.md §5.4.
@@ -36,6 +36,25 @@ export function findLog(index: LogIndex, habitId: string, date: LocalDate): Habi
   return index.get(logKey(habitId, date));
 }
 
+/**
+ * Ratio d'atteinte d'une valeur face à une cible — la primitive de scoring du
+ * produit, toujours bornée à [0, 1].
+ *
+ * Partagée par les occurrences d'habitude et par les métriques mensuelles : le
+ * dépassement doit se calculer de la même façon partout, sinon deux formules
+ * finissent par diverger et « 75/60 » ne vaut plus la même chose selon l'écran.
+ *
+ * `target` est supposé strictement positif. Les cas sans cible exploitable se
+ * traitent chez l'appelant, où le repli a un sens métier.
+ */
+export function ratioFor(direction: HabitDirection, value: number, target: number): number {
+  if (direction === "at_most") {
+    if (value <= target) return 1;
+    return Math.max(0, 1 - (value - target) / target);
+  }
+  return Math.min(value / target, 1);
+}
+
 /** Ratio d'accomplissement d'une occurrence. Toujours borné à [0, 1]. */
 export function computeCompletion(habit: Habit, log: HabitLog | undefined): number {
   if (log === undefined) return 0;
@@ -52,12 +71,7 @@ export function computeCompletion(habit: Habit, log: HabitLog | undefined): numb
     return habit.direction === "at_most" ? (value <= 0 ? 1 : 0) : value > 0 ? 1 : 0;
   }
 
-  if (habit.direction === "at_most") {
-    if (value <= target) return 1;
-    return Math.max(0, 1 - (value - target) / target);
-  }
-
-  return Math.min(value / target, 1);
+  return ratioFor(habit.direction, value, target);
 }
 
 /** `true` uniquement si l'occurrence est pleinement accomplie. */
